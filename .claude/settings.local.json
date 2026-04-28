@@ -1,0 +1,36 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(rtk ls *)",
+      "Bash(rtk read *)",
+      "Read(//private/tmp/**)",
+      "Bash(python3 -c ' *)",
+      "Bash(pip3 show *)",
+      "Bash(rtk pip *)",
+      "Bash(pip3 --version)",
+      "Bash(pip --version)",
+      "Bash(/opt/homebrew/bin/pip3 install *)",
+      "Bash(/opt/homebrew/bin/python3 -c \"import pdfplumber; print\\('pdfplumber OK'\\)\")",
+      "Bash(/opt/homebrew/bin/python3 -m pytest tests/test_m1_parser.py -v)",
+      "Bash(/opt/homebrew/bin/python3 -c \"import pypdf; print\\('pypdf OK'\\)\")",
+      "Bash(/opt/homebrew/bin/python3)",
+      "Bash(/opt/homebrew/bin/python3 -c ' *)",
+      "Bash(/opt/homebrew/bin/python3 -c \"import builtwith; print\\('builtwith: OK'\\)\")",
+      "Bash(/opt/homebrew/bin/python3 -c \"import pkg_resources\")",
+      "Bash(/opt/homebrew/bin/python3 -c \"import setuptools; print\\(setuptools.__file__\\)\")",
+      "Bash(python3 main.py --url https://www.camilaleiloes.com.br/ --doc '/Users/renoyuri/Documents/Estágio/SEI /Leiloeiro/2024-06011355/SEI - 2024-06011355.pdf')",
+      "Bash(python3 -m pip install streamlit --break-system-packages --quiet)",
+      "Bash(python3 -m streamlit run app_ui.py --server.headless true --server.port 8501)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:8501/)",
+      "mcp__Claude_in_Chrome__tabs_context_mcp",
+      "Bash(pkill -f \"streamlit run app_ui.py\")",
+      "Bash(python3 -m streamlit run app_ui.py --server.port 8501)",
+      "Bash(python3 -m streamlit run app_ui.py --server.port 8501 --server.headless true)",
+      "Bash(python3)",
+      "Bash(tesseract --version)",
+      "Bash(python3 -c \"import pytesseract; print\\('pytesseract ok'\\)\")",
+      "Bash(python3 -c \"import pdf2image; print\\('pdf2image ok'\\)\")",
+      "Bash(rtk grep *)"
+    ]
+  }
+}

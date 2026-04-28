@@ -1,0 +1,24 @@
+# ─── MÓDULO 1 — Parsing de Documentos ──────────────────────────────────────
+pdfplumber==0.11.4          # Extração de texto e tabelas de PDF (principal)
+pypdf==4.3.1                # Metadados de PDF + fallback de extração
+python-docx==1.1.2          # Leitura e escrita de arquivos .docx
+
+# ─── MÓDULO 2 — Varredura Ativa ─────────────────────────────────────────────
+requests==2.32.3            # HTTP — Qualys SSL Labs API v3, headers_scan, wappalyzer
+beautifulsoup4==4.12.3      # Parsing de HTML para detecção de bibliotecas JS
+shodan==1.31.0              # Cliente oficial da API do Shodan (opcional — requer chave)
+python-whois==0.9.5         # WHOIS para TLDs genéricos (.com, .net, .org)
+builtwith==1.3.4            # Detecção de stack por base de assinaturas
+# REMOVIDO: python-Wappalyzer — incompatível com Python 3.14 (pkg_resources ausente)
+
+# ─── MÓDULO 4 — Geração de Relatório ─────────────────────────────────────────
+# python-docx já declarado acima
+
+# ─── Interface Web (opcional) ────────────────────────────────────────────────
+streamlit>=1.28.0           # Interface web local — uso: streamlit run app_ui.py
+pandas>=2.0.0               # Tabelas na interface web
+
+# ─── Utilitários Transversais ────────────────────────────────────────────────
+python-dotenv==1.0.1        # Carregamento seguro de chaves via .env
+tqdm==4.66.5                # Barra de progresso durante varreduras
+colorama==0.4.6             # Output colorido e legível no terminal
