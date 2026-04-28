@@ -80,8 +80,8 @@ Edite `config.py` para personalizar comportamentos e conexões.
 
 ## 📄 Licença
 
-[Adicione sua licença aqui]
+
 
 ## ✉️ Contato
 
-[Adicione seus dados de contato aqui]
+
