@@ -128,19 +128,21 @@ def _check_disponibilidade(claimed: dict) -> dict:
         is_inferred = sec_text.startswith("[INFERIDO]")
 
         if val is True and is_inferred:
-            claimed_txt = "Inferido a partir do contexto"
-        elif val is True:
-            claimed_txt = "Declarado"
-        elif val is False:
-            claimed_txt = "Não declarado"
-        elif image_pages > 0:
-            claimed_txt = f"Não extraível ({image_pages} pág. digitalizada(s))"
-        else:
-            claimed_txt = "Não informado"
+            return _result(
+                "NÃO VERIFICÁVEL", val, None,
+                f"{label}: Inferido a partir do contexto. "
+                "Não é possível confirmar via varredura externa."
+            )
+        if val is True:
+            return _result(
+                "NÃO VERIFICÁVEL", val, None,
+                f"{label}: Declarado no documento. "
+                "Não é possível confirmar via varredura externa."
+            )
         return _result(
-            "NÃO VERIFICÁVEL", val, None,
-            f"{label}: {claimed_txt} no documento. "
-            "Não é possível confirmar via varredura externa."
+            "NÃO CONFORME", val, None,
+            f"{label}: não declarado no documento.",
+            "MEDIO",
         )
 
     return {
@@ -401,6 +403,16 @@ def _overall_status(checks: dict) -> str:
 def _build_conclusao(checks: dict, domain: str) -> str:
     """Gera o texto de conclusão dinamicamente baseado nos achados."""
     non_conformidades: list[str] = []
+
+    disp = checks.get("disponibilidade", {})
+    _disp_labels = {
+        "redundancia": "redundância de serviço",
+        "backup":      "backup e recuperação",
+        "energia":     "recurso contínuo de energia",
+    }
+    for key, label in _disp_labels.items():
+        if disp.get(key, {}).get("status") == "NÃO CONFORME":
+            non_conformidades.append(f"não declarou {label}")
 
     hsts = checks.get("hsts", {})
     if hsts.get("status") == "NÃO CONFORME":

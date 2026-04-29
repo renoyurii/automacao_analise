@@ -219,6 +219,11 @@ def _clean_evidence_text(text: str) -> str:
         r"Solicitamos[^.]*\.",
         r"Para\s+o\s+SSL[^.]*\.",
         r"Al[ée]m\s+disso,\s+informar[^.]*\.",
+        # Cabeçalho de norma interna repetido em cada página
+        # (ex: "CÓDIGO N.026 NORMA VERSÃO V.001 PUBLICADO EM: 12/07/2024 VÁLIDO ATÉ: 12/07/2026")
+        r"CÓDIGO\s+N\.\d+\s+NORMA\s+VERSÃO\s+V\.\d+[^\n]*",
+        r"PUBLICADO\s+EM:\s+\d{2}/\d{2}/\d{4}[^\n]*",
+        r"VÁLIDO\s+ATÉ:\s+\d{2}/\d{2}/\d{4}[^\n]*",
     ]
     cleaned = text
     for pat in patterns:
@@ -288,44 +293,36 @@ def _evidence_cell(cell, raw_text: str, image_page_count: int) -> None:
 
         if quote:
             quote = _clean_evidence_text(quote)
-            quote_short = _trim_to_boundary(quote, max_len=260)
             p2 = cell.add_paragraph()
             remove_paragraph_spacing(p2)
-            r_q_lbl = p2.add_run("Trecho do documento: ")
+            r_q_lbl = p2.add_run('Trecho do documento: ')
             r_q_lbl.font.name = FONT_NAME
             r_q_lbl.font.size = FONT_SMALL
             r_q_lbl.font.color.rgb = GRAY
-            r_quote = p2.add_run(f"“{quote_short}”")
+            r_quote = p2.add_run('“' + quote + '”')
             r_quote.font.name = FONT_NAME
             r_quote.font.size = FONT_SMALL
             r_quote.font.italic = True
             r_quote.font.color.rgb = DARK
         return
 
-    # Caso 2 — Declaração direta (mostra só o trecho citado)
+    # Caso 2 — Declaração direta (mostra o trecho completo)
     if raw_text:
-        first = raw_text.split(" [...] ")[0]
-        first = _clean_evidence_text(first)
-        first = _trim_to_boundary(first, max_len=320)
-        r = cell_p.add_run(f"“{first}”")
+        _sep = ' [...] '
+        parts = [
+            _clean_evidence_text(p.strip())
+            for p in raw_text.split(_sep)
+            if p.strip()
+        ]
+        full_text = _sep.join(p for p in parts if p)
+        r = cell_p.add_run('“' + full_text + '”')
         r.font.name = FONT_NAME
         r.font.size = FONT_SMALL
         r.font.italic = True
         r.font.color.rgb = DARK
         return
 
-    # Caso 3 — PDF com páginas digitalizadas
-    if image_page_count > 0:
-        r = cell_p.add_run(
-            f"Não extraível — o documento contém {image_page_count} "
-            f"página(s) digitalizada(s) (imagem)."
-        )
-        r.font.name = FONT_NAME
-        r.font.size = FONT_SMALL
-        r.font.color.rgb = GRAY
-        return
-
-    # Caso 4 — Sem evidência
+    # Caso 3 — Sem evidência
     r = cell_p.add_run("Não informado")
     r.font.name = FONT_NAME
     r.font.size = FONT_SMALL

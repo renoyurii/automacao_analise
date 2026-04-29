@@ -59,7 +59,8 @@ _SECTION_KEYWORDS: dict[str, list[str]] = {
     "backup":        ["backup", "cópia de segurança", "raid", "replicação",
                       "snapshot", "rotina de backup"],
     "redundancia":   ["redundância", "alta disponibilidade", "sem pontos únicos",
-                      "redundante", "failover", "balanceador"],
+                      "redundante", "failover", "balanceador de carga",
+                      "balanceamento de carga"],
     "energia":       ["nobreak", "ups", "gerador", "energia ininterrupta",
                       "alimentação ininterrupta", "no-break",
                       "energia elétrica", "interrupções de energia",
@@ -73,17 +74,32 @@ _SECTION_KEYWORDS: dict[str, list[str]] = {
                       "aws", "azure", "google cloud", "hospedagem", "servidor"],
 }
 
+# Indicadores FORTEMENTE positivos — têm prioridade sobre negativos genéricos.
+# São padrões de alta especificidade que indicam inequivocamente que o item
+# está implementado, mesmo que o texto contenha "não" em outro contexto
+# (ex: "não impactar o andamento" ≠ "não temos backup").
+_STRONG_POSITIVE = [
+    # Backup
+    r"rotina.*backup", r"rotinas.*backup", r"backup.*agendamento",
+    r"agendamento.*backup", r"backups completos", r"backup completo",
+    r"procedimento.*backup", r"norma.*backup", r"política.*backup",
+    r"backup.*diári", r"diári.*backup",
+    # Redundância / HA
+    r"alta disponibilidade", r"sem pontos únicos de falha",
+    r"replicação constante", r"espelha os dados",
+    # Energia
+    r"fonte.*redundante", r"redundância.*energia", r"energia.*redundante",
+    # Genérico (técnico assertivo)
+    r"\braid\b", r"agendamento diário", r"rotina específica",
+    r"garantia da continuidade",
+]
+
 # Indicadores booleanos positivos (o leiloeiro AFIRMA que possui/implementou)
-# Inclui tanto o estilo Q&A ("Sim, ...") quanto o estilo de relatório técnico assertivo.
 _POSITIVE = [
     r"\bsim\b", r"\byes\b", r"está ativ", r"implementad", r"habilitad",
     r"configurad", r"possu", r"contamos com", r"trabalhamos com",
     r"utilizamos", r"adotamos", r"conta com", r"está em uso",
-    # Estilo de relatório técnico (assertivo, sem pergunta/resposta)
-    r"com redundância", r"alta disponibilidade", r"sem pontos únicos de falha",
-    r"garantia da continuidade", r"rotina.*backup", r"backup.*agendamento",
-    r"\braid\b", r"espelha os dados", r"replicação constante",
-    r"rotina específica", r"agendamento diário",
+    r"com redundância",
 ]
 
 # Indicadores booleanos negativos (o leiloeiro NÃO possui / recomendação não atendida)
@@ -156,7 +172,8 @@ _INFERENCE_KEYWORDS: dict[str, list[tuple[str, str]]] = {
         ("tier iv",             "datacenter Tier IV — alta disponibilidade por design"),
         ("tier 4",              "datacenter Tier IV — alta disponibilidade por design"),
         ("load balancer",       "balanceador de carga mencionado — implica redundância"),
-        ("balanceador",         "balanceador mencionado — implica redundância"),
+        ("balanceador de carga", "balanceador de carga mencionado — implica redundância"),
+        ("balanceamento de carga", "balanceamento de carga mencionado — implica redundância"),
         ("kubernetes",          "orquestração Kubernetes — alta disponibilidade nativa"),
     ],
     # Backup: inferência fraca; só aceitamos provedores que têm backup nativo OBRIGATÓRIO.
@@ -229,40 +246,97 @@ def extract_claims(document_data: dict[str, Any]) -> dict[str, Any]:
 
 def _extract_raw_sections(text_lower: str, text_original: str) -> dict[str, str]:
     """
-    Para cada seção mapeada, extrai janelas de contexto (300 chars cada) ao redor
-    de TODAS as ocorrências das keywords (até 4 por seção), concatenadas.
-    Isso evita perder informação quando a keyword aparece primeiro num contexto
-    neutro (ex: bullet list) e depois num contexto afirmativo (ex: descrição técnica).
+    Para cada seção mapeada, extrai janelas de contexto (300 chars cada).
+
+    Estratégia em três camadas:
+    1. Se o documento tem seção explícita '1. Disponibilidade', os itens de
+       disponibilidade são buscados PRIMEIRAMENTE dentro dessa janela — evita
+       que conteúdo de outras seções (patches, auditoria) contamine a evidência.
+    2. Fragmentos com padrões FORTEMENTE POSITIVOS são priorizados na exibição
+       (aparecem antes dos fragmentos introdutórios/cabeçalhos).
+    3. Sumário/índice (linhas com '......'), cabeçalhos repetidos de norma
+       ('CÓDIGO N.xxx NORMA VERSÃO V.001') e numerações de página soltas são
+       sempre descartados.
     """
+    # Janela da seção "1. Disponibilidade" explícita (se existir no documento)
+    disp_block_lower, disp_block_orig = _extract_disp_block(text_lower, text_original)
+
     sections: dict[str, str] = {}
     for section, keywords in _SECTION_KEYWORDS.items():
-        fragments: list[str] = []
+        strong_frags: list[str] = []  # contêm padrão fortemente positivo
+        weak_frags:   list[str] = []
         seen_positions: set[int] = set()
 
-        for kw in keywords:
-            start_search = 0
-            while len(fragments) < 4:
-                idx = text_lower.find(kw, start_search)
-                if idx == -1:
-                    break
-                # Pula ocorrências dentro do template da demanda do TJ
-                # (cluster com keywords de outras seções de disponibilidade)
-                if section in _DISP_CLUSTER_KEYWORDS and \
-                   _is_question_context(text_lower, idx, current_section=section):
-                    start_search = idx + 1
-                    continue
-                # Evita janelas sobrepostas (menos de 100 chars de diferença)
-                if not any(abs(idx - p) < 100 for p in seen_positions):
-                    frag_start = max(0, idx - 120)
-                    frag_end = min(len(text_original), idx + 300)
-                    fragments.append(_snap_to_word_boundary(text_original, frag_start, frag_end))
-                    seen_positions.add(idx)
-                start_search = idx + 1
+        # Para seções de disponibilidade, busca primeiro na janela explícita
+        search_spaces: list[tuple[str, str]] = []
+        if section in _DISP_CLUSTER_KEYWORDS and disp_block_lower:
+            search_spaces.append((disp_block_lower, disp_block_orig))
+        search_spaces.append((text_lower, text_original))
 
-        if fragments:
-            sections[section] = " [...] ".join(fragments)
+        for src_lower, src_orig in search_spaces:
+            for kw in keywords:
+                try:
+                    pat = re.compile(r'\b' + re.escape(kw) + r'\b', re.IGNORECASE)
+                except re.error:
+                    continue
+
+                for m in pat.finditer(src_lower):
+                    if len(strong_frags) + len(weak_frags) >= 8:
+                        break
+                    idx = m.start()
+                    # Converte idx para posição no texto global (para cluster check)
+                    global_idx = idx if src_lower is text_lower else (
+                        text_lower.find(src_lower[idx:idx+20], max(0, idx-10))
+                    )
+                    if section in _DISP_CLUSTER_KEYWORDS and \
+                       _is_question_context(text_lower, global_idx, current_section=section):
+                        continue
+                    if any(abs(idx - p) < 100 for p in seen_positions):
+                        continue
+                    frag_start = max(0, idx - 120)
+                    frag_end   = min(len(src_orig), idx + 300)
+                    frag_text  = _snap_to_word_boundary(src_orig, frag_start, frag_end)
+                    # Descarta sumário/TOC (linhas com pontos .........)
+                    if re.search(r'\.{5,}', frag_text):
+                        continue
+                    # Descarta cabeçalho de norma interna repetido por página
+                    if re.search(r'CÓDIGO\s+N\.\d+\s*[\n\r]+\s*NORMA\s+VERSÃO', frag_text):
+                        continue
+                    # Descarta numeração de página solta (ex: "8\n1\n")
+                    if re.match(r'^\s*\d{1,3}\s*\n\s*\d{1,3}\s*\n', frag_text):
+                        continue
+                    seen_positions.add(idx)
+                    if any(re.search(p, frag_text, re.IGNORECASE) for p in _STRONG_POSITIVE):
+                        strong_frags.append(frag_text)
+                    else:
+                        weak_frags.append(frag_text)
+
+        # Fragmentos fortemente positivos primeiro; cap em 4
+        all_frags = (strong_frags + weak_frags)[:4]
+        if all_frags:
+            sections[section] = " [...] ".join(all_frags)
 
     return sections
+
+
+def _extract_disp_block(text_lower: str, text_original: str) -> tuple[str, str]:
+    """
+    Localiza a seção '1. Disponibilidade' explícita no documento (se existir)
+    e retorna uma janela de ~2000 chars como espaço de busca prioritária para
+    os itens redundância, backup e energia.
+
+    Se não encontrar, retorna ('', '').
+    """
+    m = re.search(
+        r'(?:^|\n)\s*1\s*[.)\-]\s*disponibilidade',
+        text_lower,
+    )
+    if not m:
+        return "", ""
+    start = m.start()
+    end   = min(len(text_original), start + 2000)
+    block = text_original[start:end]
+    return block.lower(), block
 
 
 def _extract_hsts(raw_sections: dict[str, str], text_lower: str) -> bool | None:
@@ -343,6 +417,13 @@ def _extract_bool_claim(section_text: str, text_lower: str) -> bool | None:
     if section_text.startswith(_INFERIDO_PREFIX):
         return True
     ctx = section_text.lower()
+    # Padrões fortemente positivos: verificados tanto nos fragmentos extraídos
+    # quanto no documento inteiro. Isso evita falsos negativos quando o extrator
+    # captura seções introdutórias/cabeçalhos e não chega ao conteúdo real
+    # (ex: política de backup cujas regras de rotina estão na seção 7, não no OBJETIVO).
+    for pattern in _STRONG_POSITIVE:
+        if re.search(pattern, ctx) or re.search(pattern, text_lower):
+            return True
     for pattern in _NEGATIVE:
         if re.search(pattern, ctx):
             return False

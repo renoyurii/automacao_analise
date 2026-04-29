@@ -98,6 +98,68 @@ def _domain_from_url(url: str) -> str:
     return (parsed.netloc or parsed.path).lstrip("www.").split(":")[0]
 
 
+def _merge_claimed(claims: list[dict]) -> dict:
+    """Mescla claimed_data de múltiplos documentos num único dict."""
+    if len(claims) == 1:
+        return claims[0]
+
+    bool_fields = [
+        "hsts_claimed", "ssl_cert_claimed",
+        "backup_claimed", "redundancy_claimed", "energy_redundancy",
+    ]
+    list_fields = [
+        "tls_versions_claimed", "os_versions", "virtualization",
+        "firewall_waf", "open_ports_declared", "datacenter",
+    ]
+    str_fields = ["monitoring_url", "update_routine"]
+
+    merged: dict = {}
+
+    for field in bool_fields:
+        vals = [c.get(field) for c in claims]
+        if any(v is True for v in vals):
+            merged[field] = True
+        elif any(v is False for v in vals):
+            merged[field] = False
+        else:
+            merged[field] = None
+
+    for field in list_fields:
+        seen: list = []
+        for c in claims:
+            for item in (c.get(field) or []):
+                if item not in seen:
+                    seen.append(item)
+        merged[field] = seen
+
+    for field in str_fields:
+        merged[field] = next((c.get(field) for c in claims if c.get(field)), None)
+
+    # Mescla seções brutas: concatena fragmentos de documentos diferentes
+    all_sec_keys: set[str] = set()
+    for c in claims:
+        all_sec_keys.update((c.get("raw_sections") or {}).keys())
+    raw_sections: dict[str, str] = {}
+    for key in all_sec_keys:
+        parts = [
+            (c.get("raw_sections") or {}).get(key, "").strip()
+            for c in claims
+            if (c.get("raw_sections") or {}).get(key, "").strip()
+        ]
+        raw_sections[key] = " [...] ".join(parts)
+    merged["raw_sections"] = raw_sections
+
+    merged["image_page_count"] = sum(c.get("image_page_count", 0) or 0 for c in claims)
+    return merged
+
+
+def _parse_all_documents(paths: list[str]) -> dict:
+    """Faz o parsing de todos os documentos e mescla os resultados."""
+    from modules.m1_parser import parse_document
+    claims = [parse_document(p) for p in paths]
+    return _merge_claimed(claims)
+
+
 def _display_results(rd: dict, ficha_path: str) -> None:
     overall   = rd.get("overall_status", "?")
     domain    = rd.get("domain", "")
@@ -247,9 +309,10 @@ with col_url:
 
 with col_file:
     uploaded = st.file_uploader(
-        "📄 Declaração do leiloeiro",
+        "📄 Declaração(ões) do leiloeiro",
         type=["pdf", "docx"],
-        help="Arquivo PDF ou DOCX enviado pelo leiloeiro via SEI",
+        accept_multiple_files=True,
+        help="Um ou mais arquivos PDF/DOCX enviados pelo leiloeiro via SEI",
     )
 
 ready = bool(url_input.strip() and uploaded)
@@ -269,10 +332,13 @@ st.divider()
 # ── Análise ───────────────────────────────────────────────────────────────────
 
 if run and ready:
-    suffix = Path(uploaded.name).suffix.lower()
-    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-        tmp.write(uploaded.read())
-        tmp_path = tmp.name
+    # Salva todos os arquivos carregados em arquivos temporários
+    tmp_paths: list[str] = []
+    for uf in uploaded:
+        suffix = Path(uf.name).suffix.lower()
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            tmp.write(uf.read())
+            tmp_paths.append(tmp.name)
 
     try:
         with st.status("🔍 Executando análise completa...", expanded=True) as status_widget:
@@ -281,16 +347,19 @@ if run and ready:
             from modules.m3_engine import evaluate
             from modules.m4_reporter import generate_ficha
 
-            st.write("🔄 M1 (parsing do documento) e M2 (varredura web) em paralelo...")
+            n_docs = len(tmp_paths)
+            st.write(
+                f"🔄 M1 (parsing de {n_docs} documento(s)) e M2 (varredura web) em paralelo..."
+            )
             st.write("⏳ Aguardando SSL Labs — pode levar até 3 minutos, por favor aguarde...")
 
             with ThreadPoolExecutor(max_workers=2) as ex:
-                fut_m1 = ex.submit(parse_document, tmp_path)
+                fut_m1 = ex.submit(_parse_all_documents, tmp_paths)
                 fut_m2 = ex.submit(scan_all, url_input)
                 claimed = fut_m1.result()
                 scan    = fut_m2.result()
 
-            st.write("✅ M1 — Parsing concluído.")
+            st.write(f"✅ M1 — Parsing de {n_docs} documento(s) concluído.")
             st.write("✅ M2 — Varredura concluída.")
             st.write("🔄 M3 — Cruzando dados e aplicando regras de conformidade...")
 
@@ -318,7 +387,8 @@ if run and ready:
         st.error(f"Erro durante a análise: {exc}")
         st.exception(exc)
     finally:
-        os.unlink(tmp_path)
+        for p in tmp_paths:
+            os.unlink(p)
 
 # ── Resultado ─────────────────────────────────────────────────────────────────
 
