@@ -1,0 +1,12 @@
+# Documentos dos leiloeiros — não versionar (podem conter dados sigilosos)
+*.pdf
+*.docx
+*.doc
+*.xlsx
+*.xls
+*.png
+*.jpg
+*.jpeg
+
+# Mantém este .gitignore rastreado
+!.gitignore
