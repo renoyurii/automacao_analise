@@ -123,6 +123,13 @@ _FIREWALL_TERMS = [
     "firewall", "waf", "ips", "ids",
 ]
 
+# Nomes de exibição corretos para siglas e marcas com capitalização especial
+_FIREWALL_DISPLAY: dict[str, str] = {
+    "waf": "WAF", "ips": "IPS", "ids": "IDS",
+    "f5": "F5", "pfsense": "pfSense",
+    "checkpoint": "Check Point", "aws shield": "AWS Shield",
+}
+
 _DATACENTER_TERMS = [
     "ascenty", "equinix", "locaweb", "digitalocean",
     "aws", "amazon web services", "azure", "google cloud", "gcp",
@@ -406,7 +413,7 @@ def _extract_firewall(text_lower: str) -> list[str]:
     found: list[str] = []
     for term in _FIREWALL_TERMS:
         if term in text_lower and term not in found:
-            found.append(term.title())
+            found.append(_FIREWALL_DISPLAY.get(term, term.title()))
     return found
 
 
@@ -532,7 +539,7 @@ def _extract_ports(text: str) -> list[int]:
 
 
 def _extract_update_routine(section_text: str, text_lower: str) -> str | None:
-    ctx = (section_text or "").lower() or text_lower
+    ctx = section_text.lower() if section_text else text_lower
 
     has_auto = any(kw in ctx for kw in ["automático", "automática", "automaticamente",
                                           "atualização automática", "auto update"])

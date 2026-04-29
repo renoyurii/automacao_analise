@@ -13,8 +13,8 @@ exatamente como aparece nas fichas geradas manualmente.
 
 from __future__ import annotations
 
+import re
 import socket
-import http.client
 from urllib.parse import urlparse
 from typing import Any
 
@@ -152,9 +152,9 @@ def _build_redirect_chain(resp: requests.Response) -> list[str]:
 def _detect_http_version(headers: dict[str, str]) -> str:
     headers_lower = {k.lower(): v for k, v in headers.items()}
     alt_svc = headers_lower.get("alt-svc", "")
-    if "h3" in alt_svc:
+    if re.search(r'\bh3\b', alt_svc):
         return "HTTP/3 (suportado via alt-svc)"
-    if "h2" in alt_svc:
+    if re.search(r'\bh2\b', alt_svc):
         return "HTTP/2"
     return "HTTP/1.1"
 

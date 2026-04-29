@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import re
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 import builtwith
 import requests
@@ -456,8 +456,6 @@ _BUNDLE_MAX_FETCH = 4         # máximo de bundles a buscar
 
 def _detect_from_bundles(src_texts: list[str], base_url: str, add: Any) -> None:
     """Busca versões de frameworks e marcadores em bundles JS locais."""
-    from urllib.parse import urljoin
-
     local_js = [
         s for s in src_texts
         if s.endswith(".js")

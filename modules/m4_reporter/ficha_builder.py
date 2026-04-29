@@ -8,13 +8,14 @@ em destaque com código de cores; dados brutos em fonte monoespaçada.
 
 from __future__ import annotations
 
+import re
 from datetime import date
 from pathlib import Path
 from typing import Any
 
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.shared import Cm, Pt
+from docx.shared import Cm, Pt, RGBColor
 
 from config import REPORT_HEADER_LINE1, REPORT_HEADER_LINE2, REPORT_FOOTER
 from .styles import (
@@ -199,10 +200,8 @@ def _clean_evidence_text(text: str) -> str:
     """
     Remove ruídos típicos de PDFs em formato slide-deck/multi-coluna, em que
     cabeçalhos, rodapés e fragmentos do template da demanda se intercalam ao
-    texto da resposta. Ex: documento da Brame tem coluna esquerda (pergunta) e
-    direita (resposta) que ao serem extraídas como texto vêm misturadas.
+    texto da resposta.
     """
-    import re as _re
     patterns = [
         # Cabeçalhos / rodapés do slide-deck
         r"Evidências?\s+(?:Brame\s+)?Leilões",
@@ -227,31 +226,16 @@ def _clean_evidence_text(text: str) -> str:
     ]
     cleaned = text
     for pat in patterns:
-        cleaned = _re.sub(pat, " ", cleaned, flags=_re.IGNORECASE)
-    # Normaliza espaços e remove pontuação órfã residual
-    cleaned = _re.sub(r"\s*●\s*●", " ●", cleaned)
-    cleaned = _re.sub(r"\s+", " ", cleaned).strip()
-    cleaned = _re.sub(r"^[;:.,●\s]+", "", cleaned)
+        cleaned = re.sub(pat, " ", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s*●\s*●", " ●", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    cleaned = re.sub(r"^[;:.,●\s]+", "", cleaned)
 
-    # Se sobra um fragmento de sentença anterior no início (começa em minúscula),
-    # descarta até o primeiro fim de sentença encontrado.
     if cleaned and cleaned[0].islower():
-        m = _re.search(r"[.!?]\s+", cleaned[:160])
+        m = re.search(r"[.!?]\s+", cleaned[:160])
         if m:
             cleaned = cleaned[m.end():].lstrip()
     return cleaned
-
-
-def _trim_to_boundary(text: str, max_len: int) -> str:
-    """Recorta o texto a no máximo max_len, parando em fronteira de palavra."""
-    text = text.strip()
-    if len(text) <= max_len:
-        return text
-    cut = text[:max_len]
-    sp = cut.rfind(" ")
-    if sp > max_len - 50:
-        cut = cut[:sp]
-    return cut.rstrip(" ,;.") + "…"
 
 
 def _evidence_cell(cell, raw_text: str, image_page_count: int) -> None:
@@ -259,11 +243,8 @@ def _evidence_cell(cell, raw_text: str, image_page_count: int) -> None:
     Apresenta a evidência da declaração de forma clara:
       - Inferência: rótulo destacado + motivo + trecho fonte entre aspas
       - Direta:     trecho citado entre aspas, em itálico
-      - Imagem:     mensagem explicando que o PDF tem páginas digitalizadas
       - Vazio:      "Não informado" simples
     """
-    import re as _re
-
     # Limpa o parágrafo padrão da célula
     cell_p = cell.paragraphs[0]
     remove_paragraph_spacing(cell_p)
@@ -418,7 +399,6 @@ def _add_aplicacoes(doc: Document, rd: dict) -> None:
         r.font.name = FONT_NAME
         r.font.size = FONT_SMALL
         r.font.bold = eol is True
-        from docx.shared import RGBColor
         r.font.color.rgb = RGBColor.from_string(eol_color)
         p_eol.alignment = WD_ALIGN_PARAGRAPH.CENTER
         if bg:

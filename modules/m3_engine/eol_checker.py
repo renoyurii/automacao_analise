@@ -63,8 +63,14 @@ _PRODUCT_MAP: dict[str, tuple[str, Any]] = {
     "django":             ("django",         _major_minor),
     "react":              ("react",          _major),
     "angular":            ("angular",        _major),
-    "vue.js":             ("vuejs",          _major_minor),  # EOL usa ciclos X.Y (ex: 2.7)
-    "vue":                ("vuejs",          _major_minor),  # alias sem .js
+    "angularjs":          ("angularjs",      _major),
+    "vue.js":             ("vuejs",          _major_minor),
+    "vue":                ("vuejs",          _major_minor),
+    "next.js":            ("nextjs",         _major),
+    "nuxt.js":            ("nuxt",           _major),
+    "joomla":             ("joomla",         _major),
+    "magento":            ("magento",        _major),
+    "shopify":            ("shopify",        _major),
 }
 
 
@@ -173,8 +179,6 @@ def _query_api(product: str, cycle: str) -> dict:
 
 def _date_passed(date_str: str) -> bool:
     try:
-        parts = date_str.split("-")
-        eol = date(int(parts[0]), int(parts[1]), int(parts[2]))
-        return eol < date.today()
-    except Exception:
+        return date.fromisoformat(date_str) < date.today()
+    except ValueError:
         return False
