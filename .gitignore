@@ -64,3 +64,8 @@ Thumbs.db
 # Project specific
 output/
 *.log
+
+# Sensitive environment files
+.env
+.env.local
+.env.*.local
