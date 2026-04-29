@@ -34,14 +34,17 @@ def read_pdf(path: str | Path) -> dict[str, Any]:
 
     text_parts: list[str] = []
     tables: list[list[list[str | None]]] = []
+    image_page_indices: list[int] = []
 
     total_pages = 0
     with pdfplumber.open(path) as pdf:
         total_pages = len(pdf.pages)
-        for page in pdf.pages:
+        for i, page in enumerate(pdf.pages):
             page_text = page.extract_text()
             if page_text and page_text.strip():
                 text_parts.append(page_text)
+            else:
+                image_page_indices.append(i)
 
             for table in page.extract_tables():
                 if _table_has_content(table):
@@ -57,6 +60,7 @@ def read_pdf(path: str | Path) -> dict[str, Any]:
         "page_count": text_pages,
         "total_page_count": total_pages,
         "image_page_count": total_pages - text_pages,
+        "image_page_indices": image_page_indices,
         "source_path": str(path),
         "source_format": "pdf",
     }

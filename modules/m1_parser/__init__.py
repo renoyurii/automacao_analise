@@ -24,6 +24,11 @@ def parse_document(path: str) -> dict[str, Any]:
     Detecta o formato pelo sufixo, delega ao reader correto e
     passa o resultado pelo claim_extractor.
 
+    Quando o PDF possui páginas sem texto (imagens/diagramas) e a variável
+    de ambiente ANTHROPIC_API_KEY estiver configurada, usa Claude Vision
+    para descrever a infraestrutura representada nessas imagens, adicionando
+    o texto resultante ao corpus antes da extração de alegações.
+
     Retorna: claimed_data (dict com todas as alegações estruturadas).
     """
     ext = os.path.splitext(path)[1].lower()
@@ -35,4 +40,14 @@ def parse_document(path: str) -> dict[str, Any]:
         )
 
     raw = read_pdf(path) if ext == ".pdf" else read_docx(path)
+
+    # Enriquece com Vision AI quando há páginas sem texto e API key disponível
+    if ext == ".pdf" and raw.get("image_page_count", 0) > 0:
+        indices = raw.get("image_page_indices", [])
+        if indices and os.environ.get("ANTHROPIC_API_KEY", "").strip():
+            from .vision_extractor import extract_text_from_image_pages
+            vision_text = extract_text_from_image_pages(path, indices)
+            if vision_text:
+                raw["text"] = raw["text"] + "\n\n" + vision_text
+
     return extract_claims(raw)

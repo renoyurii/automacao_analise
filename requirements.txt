@@ -2,6 +2,8 @@
 pdfplumber==0.11.4          # Extração de texto e tabelas de PDF (principal)
 pypdf==4.3.1                # Metadados de PDF + fallback de extração
 python-docx==1.1.2          # Leitura e escrita de arquivos .docx
+anthropic>=0.97.0           # Vision AI: interpreta imagens de documentos (requer ANTHROPIC_API_KEY)
+pillow>=10.0.0              # Renderização de páginas PDF em imagens (pdfplumber.to_image)
 
 # ─── MÓDULO 2 — Varredura Ativa ─────────────────────────────────────────────
 requests==2.32.3            # HTTP — Qualys SSL Labs API v3, headers_scan, wappalyzer

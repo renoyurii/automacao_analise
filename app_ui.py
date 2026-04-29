@@ -18,9 +18,13 @@ from urllib.parse import urlparse
 
 import pandas as pd
 import streamlit as st
+from dotenv import load_dotenv
 
 # Garante que os imports do projeto funcionam de qualquer diretório
 sys.path.insert(0, str(Path(__file__).parent))
+
+# Carrega variáveis do .env (inclui ANTHROPIC_API_KEY para Vision AI)
+load_dotenv(Path(__file__).parent / ".env")
 
 
 # ── Helpers de exibição (definidos antes do uso) ──────────────────────────────
@@ -348,8 +352,10 @@ if run and ready:
             from modules.m4_reporter import generate_ficha
 
             n_docs = len(tmp_paths)
+            vision_active = bool(os.environ.get("ANTHROPIC_API_KEY", "").strip())
+            vision_note = " · Vision AI ativa 🔬" if vision_active else " · Vision AI inativa (sem ANTHROPIC_API_KEY)"
             st.write(
-                f"🔄 M1 (parsing de {n_docs} documento(s)) e M2 (varredura web) em paralelo..."
+                f"🔄 M1 (parsing de {n_docs} documento(s){vision_note}) e M2 (varredura web) em paralelo..."
             )
             st.write("⏳ Aguardando SSL Labs — pode levar até 3 minutos, por favor aguarde...")
 
