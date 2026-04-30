@@ -1,41 +1,69 @@
 """
 Testes do Módulo 1 — Parser de Documentos.
 
-Usa os documentos reais do processo como fixtures, sem mocks:
-  - Declaração Erika Maciel (PDF) → SEI 2022-06125971
-  - Relatório técnico Frederico Leilões (PDF) → SEI 2021-06115087
+Os testes portáveis usam os documentos de referência versionados no projeto.
+Os testes com documentos reais do SEI continuam disponíveis como integração,
+mas são ignorados quando esses PDFs não existem ou não podem ser lidos pelo
+ambiente atual.
 
 Execute com:
     python -m pytest tests/test_m1_parser.py -v
 """
 
-import sys
 import os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import sys
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(PROJECT_ROOT))
 
 import pytest
 from modules.m1_parser import parse_document
+from modules.m1_parser.claim_extractor import extract_claims
 from modules.m1_parser.pdf_reader import read_pdf
 from modules.m1_parser.docx_reader import read_docx
 
-# ── Caminhos dos documentos reais ────────────────────────────────────────────
+# ── Caminhos dos documentos ──────────────────────────────────────────────────
 
-SEI_ROOT = "/Users/renoyuri/Documents/Estágio/SEI /Leiloeiro"
+LOCAL_PDF = PROJECT_ROOT / "docs/referencia/arquivos_base/leiloeiro.pdf"
+LOCAL_DOCX = PROJECT_ROOT / "docs/referencia/arquivos_base/leiloeiro.docx"
 
-PDF_ERIKA = f"{SEI_ROOT}/2022-06125971 - Erika Maciel Ramos/SEI - 2022-06125971.pdf"
-PDF_FREDERICO = f"{SEI_ROOT}/2021-06115087/SEI - 2021-06115087.pdf"
+DEFAULT_SEI_ROOT = Path("/Users/renoyuri/Documents/Estágio/SEI /Leiloeiro")
+SEI_ROOT = Path(os.getenv("SEI_ROOT", DEFAULT_SEI_ROOT))
+
+PDF_ERIKA = SEI_ROOT / "2022-06125971 - Erika Maciel Ramos/SEI - 2022-06125971.pdf"
+PDF_FREDERICO = SEI_ROOT / "2021-06115087/SEI - 2021-06115087.pdf"
+
+
+def _require_readable(path: Path, label: str) -> Path:
+    try:
+        with path.open("rb") as fh:
+            fh.read(1)
+    except OSError as exc:
+        pytest.skip(f"{label} indisponível para teste de integração: {path} ({exc})")
+    return path
 
 
 # ── Fixtures ─────────────────────────────────────────────────────────────────
 
 @pytest.fixture(scope="module")
+def claims_local_pdf():
+    return parse_document(LOCAL_PDF)
+
+
+@pytest.fixture(scope="module")
+def claims_local_docx():
+    return parse_document(LOCAL_DOCX)
+
+
+@pytest.fixture(scope="module")
 def claims_erika():
-    return parse_document(PDF_ERIKA)
+    return parse_document(_require_readable(PDF_ERIKA, "PDF_ERIKA"))
 
 
 @pytest.fixture(scope="module")
 def claims_frederico():
-    return parse_document(PDF_FREDERICO)
+    return parse_document(_require_readable(PDF_FREDERICO, "PDF_FREDERICO"))
 
 
 # ── Testes: estrutura do retorno ─────────────────────────────────────────────
@@ -63,6 +91,81 @@ class TestReturnStructure:
         ports = claims_frederico["open_ports_declared"]
         assert isinstance(ports, list)
         assert all(isinstance(p, int) for p in ports)
+
+
+# ── Testes portáveis: fixtures versionadas no projeto ────────────────────────
+
+class TestPortableFixtures:
+    def test_local_pdf_has_all_keys(self, claims_local_pdf):
+        for key in TestReturnStructure.REQUIRED_KEYS:
+            assert key in claims_local_pdf, f"Chave ausente: {key}"
+
+    def test_local_docx_has_all_keys(self, claims_local_docx):
+        for key in TestReturnStructure.REQUIRED_KEYS:
+            assert key in claims_local_docx, f"Chave ausente: {key}"
+
+    def test_local_pdf_reader_returns_text(self):
+        result = read_pdf(LOCAL_PDF)
+        assert len(result["text"]) > 100
+        assert result["source_format"] == "pdf"
+        assert result["total_page_count"] > 0
+
+    def test_local_docx_reader_returns_text(self):
+        result = read_docx(LOCAL_DOCX)
+        assert len(result["text"]) > 100
+        assert result["source_format"] == "docx"
+
+
+# ── Testes: evidências específicas de disponibilidade ────────────────────────
+
+class TestAvailabilityEvidence:
+    def test_extracts_specific_labeled_availability_evidence(self):
+        text = """
+        Relatório técnico do ambiente web
+        1. Disponibilidade
+        Redundância de serviço => A aplicação está hospedada em ambiente com
+        balanceador de carga e servidores redundantes, garantindo alta disponibilidade
+        em caso de falha.
+        Backup e recuperação => São realizados backups diários com retenção de
+        30 dias e testes periódicos de restauração.
+        Recurso contínuo de energia => O datacenter possui nobreaks e gerador
+        para alimentação ininterrupta dos servidores.
+        2. Integridade
+        Firewall Cloudflare.
+        """
+
+        result = extract_claims({"text": text, "image_page_count": 0})
+
+        assert result["redundancy_claimed"] is True
+        assert result["backup_claimed"] is True
+        assert result["energy_redundancy"] is True
+        assert result["raw_sections"]["redundancia"].startswith("A aplicação está hospedada")
+        assert result["raw_sections"]["backup"].startswith("São realizados backups diários")
+        assert result["raw_sections"]["energia"].startswith("O datacenter possui nobreaks")
+
+    def test_ignores_methodology_as_availability_evidence(self):
+        text = """
+        2.2. VERIFICAÇÃO DE DISPONIBILIDADE
+        Esta etapa compreende a avaliação dos seguintes aspectos relacionados à
+        disponibilidade e resiliência da infraestrutura:
+        • Redundância de serviço: verificação da existência de mecanismos que
+        garantam a continuidade operacional em caso de falhas;
+        • Rotina de backup e recuperação: análise dos procedimentos adotados para
+        cópia de segurança e restauração de dados;
+        • Redundância de energia elétrica: avaliação da existência de sistemas de
+        alimentação ininterrupta (nobreak/gerador) para garantir a operação contínua.
+        Documentação de rotinas operacionais: o leiloeiro deve apresentar documentação
+        formal e detalhada de suas rotinas de backup.
+        """
+
+        result = extract_claims({"text": text, "image_page_count": 0})
+
+        assert result["redundancy_claimed"] is None
+        assert result["backup_claimed"] is None
+        assert result["energy_redundancy"] is None
+        assert "redundancia" not in result["raw_sections"]
+        assert "backup" not in result["raw_sections"]
+        assert "energia" not in result["raw_sections"]
 
 
 # ── Testes: Erika Maciel (declaração em bullet points) ──────────────────────
@@ -148,13 +251,13 @@ class TestFredericoLeiloes:
 
 class TestPdfReader:
     def test_returns_text(self):
-        result = read_pdf(PDF_ERIKA)
+        result = read_pdf(_require_readable(PDF_ERIKA, "PDF_ERIKA"))
         assert len(result["text"]) > 100
         assert result["source_format"] == "pdf"
         assert result["page_count"] > 0
 
     def test_frederico_has_sections(self):
-        result = read_pdf(PDF_FREDERICO)
+        result = read_pdf(_require_readable(PDF_FREDERICO, "PDF_FREDERICO"))
         text_lower = result["text"].lower()
         assert "disponibilidade" in text_lower
         assert "firewall" in text_lower
@@ -180,9 +283,9 @@ class TestParseDocument:
             parse_document(str(dummy))
 
     def test_pdf_erika_returns_dict(self):
-        result = parse_document(PDF_ERIKA)
+        result = parse_document(_require_readable(PDF_ERIKA, "PDF_ERIKA"))
         assert isinstance(result, dict)
 
     def test_pdf_frederico_returns_dict(self):
-        result = parse_document(PDF_FREDERICO)
+        result = parse_document(_require_readable(PDF_FREDERICO, "PDF_FREDERICO"))
         assert isinstance(result, dict)

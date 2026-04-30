@@ -41,14 +41,14 @@ cp .env.example .env
 
 ## 💻 Uso
 
-Para iniciar a interface:
+Para iniciar a interface web:
 ```bash
-python main.py
+python3 -m streamlit run app_ui.py
 ```
 
-Ou para usar a versão UI:
+Para usar pela linha de comando:
 ```bash
-python app_ui.py
+python3 main.py --url https://www.exemplo.com.br --doc caminho/para/declaracao.pdf
 ```
 
 ## 📁 Estrutura do Projeto
@@ -83,5 +83,4 @@ Edite `config.py` para personalizar comportamentos e conexões.
 
 
 ## ✉️ Contato
-
 

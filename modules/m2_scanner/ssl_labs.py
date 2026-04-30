@@ -47,6 +47,7 @@ def scan_ssl_labs(domain: str) -> dict[str, Any]:
         },
         "tls": dict[str, bool],        # {"TLS 1.3": True, "TLS 1.2": True, ...}
         "cert_valid": bool | None,
+        "sni_required": bool | None,
         "ip": str | None,
         "error": str | None,
     }
@@ -76,6 +77,7 @@ def scan_ssl_labs(domain: str) -> dict[str, Any]:
         "hsts":       _extract_hsts(details),
         "tls":        _extract_tls(details),
         "cert_valid": _extract_cert_validity(details),
+        "sni_required": details.get("sniRequired"),
         "ip":         endpoint.get("ipAddress"),
         "error":      None,
     }
@@ -204,6 +206,7 @@ def _error_result(error: str) -> dict[str, Any]:
         "hsts":       {"present": False, "max_age": None, "include_subdomains": False, "preload": False},
         "tls":        {name: False for name in _PROTOCOL_NAMES.values()},
         "cert_valid": None,
+        "sni_required": None,
         "ip":         None,
         "error":      error,
     }

@@ -116,8 +116,8 @@ def _check_url(hdrs: dict) -> dict:
 
 def _check_disponibilidade(claimed: dict) -> dict:
     """
-    Disponibilidade (redundância, backup, energia) não é verificável via scan externo.
-    Registra o que foi declarado e emite status NÃO VERIFICÁVEL.
+    Disponibilidade (redundância, backup, energia) é avaliada pela declaração.
+    Se o item foi declarado no documento, atende ao requisito da ficha.
     """
     image_pages = claimed.get("image_page_count", 0) or 0
     raw_secs    = claimed.get("raw_sections", {}) or {}
@@ -129,15 +129,14 @@ def _check_disponibilidade(claimed: dict) -> dict:
 
         if val is True and is_inferred:
             return _result(
-                "NÃO VERIFICÁVEL", val, None,
+                "CONFORME", val, True,
                 f"{label}: Inferido a partir do contexto. "
-                "Não é possível confirmar via varredura externa."
+                "Há evidência documental suficiente para registrar o item como declarado."
             )
         if val is True:
             return _result(
-                "NÃO VERIFICÁVEL", val, None,
-                f"{label}: Declarado no documento. "
-                "Não é possível confirmar via varredura externa."
+                "CONFORME", val, True,
+                f"{label}: Declarado no documento."
             )
         return _result(
             "NÃO CONFORME", val, None,

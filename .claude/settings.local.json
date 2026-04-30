@@ -49,7 +49,26 @@
       "Bash(git add *)",
       "Bash(git commit -m ' *)",
       "Bash(rtk gh *)",
-      "Bash(gh pr create --base main --head feat/melhora-extracao-disponibilidade --title 'Adiciona Vision AI para imagens e melhora detecção de tecnologias' --body ' *)"
+      "Bash(gh pr create --base main --head feat/melhora-extracao-disponibilidade --title 'Adiciona Vision AI para imagens e melhora detecção de tecnologias' --body ' *)",
+      "Bash(python3 -c \"from fpdf import FPDF; print\\('fpdf2 OK'\\)\")",
+      "Bash(python3 -c \"import ast; ast.parse\\(open\\('app_ui.py'\\).read\\(\\)\\); print\\('syntax OK'\\)\")",
+      "Bash(streamlit run *)",
+      "Bash(open \"http://localhost:8502\")",
+      "Bash(python3 -c \"import docx2pdf; print\\('docx2pdf ok'\\)\")",
+      "Read(//Applications/**)",
+      "Bash(python3 -c \"import pypandoc; print\\('pypandoc ok'\\)\")",
+      "Bash(python3 -m pip show docx2pdf)",
+      "Bash(osascript -e 'tell application \"Microsoft Word\" to get version')",
+      "Bash(python3 -m pip install fpdf2 --quiet)",
+      "Bash(python3 -m pip install fpdf2 --quiet --break-system-packages)",
+      "Bash(open /tmp/teste_ficha.pdf)",
+      "Bash(python3 -c \"import ast; ast.parse\\(open\\('app_ui.py'\\).read\\(\\)\\); print\\('syntax ok'\\)\")",
+      "Bash(rtk curl *)",
+      "Bash(open /tmp/teste_ficha2.pdf)",
+      "Bash(python3 -c \"from fpdf import FPDF; print\\('fpdf2 version:', __import__\\('fpdf'\\).__version__\\)\")",
+      "Bash(rtk wc *)",
+      "Bash(python3 -m pytest tests/ -q)",
+      "Bash(python3 -m pytest tests/ -q --no-header)"
     ]
   }
 }
