@@ -305,9 +305,13 @@ with st.sidebar:
 
     vision_active = bool(os.environ.get("ANTHROPIC_API_KEY", "").strip())
 
+    # LLM Extractor compartilha a mesma key, mas pode ser desativado via M1_LLM_DISABLE
+    llm_extract_active = vision_active and os.environ.get("M1_LLM_DISABLE", "") != "1"
+
     st.markdown('<span class="sb-label">Componentes</span>', unsafe_allow_html=True)
     st.markdown(f"""
     <div class="sb-section">
+        <div class="sb-item">{"🟢" if llm_extract_active else "⚪"} Extração via Claude {"ativa" if llm_extract_active else "inativa"}</div>
         <div class="sb-item">{"🟢" if vision_active else "⚪"} Vision AI {"ativa" if vision_active else "inativa"}</div>
         <div class="sb-item">🟢 SSL Labs (Qualys)</div>
         <div class="sb-item">🟢 endoflife.date</div>

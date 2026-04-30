@@ -4,7 +4,7 @@ Sistema automatizado para análise de documentos e segurança com geração de r
 
 ## 🎯 Funcionalidades
 
-- **M1 - Parser**: Extração de dados de documentos (PDF, DOCX)
+- **M1 - Parser**: Extração híbrida de dados de documentos (PDF, DOCX) — regex baseline + Claude LLM (tool use) quando `ANTHROPIC_API_KEY` está configurada. Inclui Vision AI para páginas-imagem.
 - **M2 - Scanner**: Análise de segurança (Shodan, SSL Labs, Whois, Wappalyzer, Headers)
 - **M3 - Engine**: Comparação de dados e verificação de EOL
 - **M4 - Reporter**: Geração de relatórios e fichas estruturadas
@@ -38,6 +38,17 @@ pip install -r requirements.txt
 cp .env.example .env
 # Edite o arquivo .env com suas configurações
 ```
+
+### Extração via Claude (recomendado)
+
+Para documentos com phrasing variado ou conteúdo em diagramas, configure `ANTHROPIC_API_KEY` no `.env`. Isso ativa simultaneamente:
+
+- **Vision AI** — descreve páginas-imagem (diagramas, fluxos) em texto
+- **Extração via LLM** — substitui o regex como fonte primária, com Tool Use estruturado e citação textual por item declarado (auditável)
+
+Variáveis opcionais:
+- `M1_LLM_MODEL` — default `claude-haiku-4-5-20251001`. Use Sonnet para mais precisão.
+- `M1_LLM_DISABLE=1` — força fallback regex mesmo com a key configurada.
 
 ## 💻 Uso
 
