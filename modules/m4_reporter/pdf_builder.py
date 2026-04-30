@@ -225,7 +225,7 @@ def _eol_label(t: dict) -> str:
         return f"EOL {d}" if d else "EOL"
     if t.get("eol") is False:
         return "Suportado"
-    return "—"
+    return "-"
 
 
 def _techs_table(pdf: FPDF, techs: list[dict]) -> None:
@@ -273,7 +273,7 @@ def _techs_table(pdf: FPDF, techs: list[dict]) -> None:
 
         # Versão
         pdf.set_text_color(*_C_NEUTRAL)
-        pdf.cell(col_w[2], 5.5, f"  {t.get('version') or '—'}", border=0,
+        pdf.cell(col_w[2], 5.5, f"  {t.get('version') or '-'}", border=0,
                  new_x=XPos.RIGHT, new_y=YPos.TOP)
 
         # EOL
