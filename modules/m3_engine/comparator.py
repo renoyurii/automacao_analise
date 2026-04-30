@@ -263,44 +263,32 @@ def _check_criptografia(ssl: dict) -> dict:
 
 
 def _check_aplicacoes(technologies_with_eol: list[dict]) -> dict:
-    eol_items: list[dict] = []
-    unknown_items: list[dict] = []
-
-    for t in technologies_with_eol:
-        if t.get("eol") is True:
-            eol_items.append(t)
-        elif t.get("eol") is None and t.get("version"):
-            unknown_items.append(t)
+    eol_items    = [t for t in technologies_with_eol if t.get("eol") is True]
+    unknown_items = [t for t in technologies_with_eol if t.get("eol") is None and t.get("version")]
 
     if eol_items:
-        names = ", ".join(
+        names  = ", ".join(
             f"{t['name']} {t['version'] or ''} (EOL: {t.get('eol_date', '?')})"
             for t in eol_items
         )
-        detail = (
-            f"{len(eol_items)} tecnologia(s) sem suporte de segurança: {names}. "
-            "Versões EOL são vetores de ataque conhecidos."
-        )
-        status = "NÃO CONFORME"
-        sev = "ALTO"
+        detail = f"{len(eol_items)} tecnologia(s) com versões sem suporte ativo: {names}."
+        status = "ATENÇÃO"
     elif unknown_items:
         detail = (
-            f"{len(unknown_items)} tecnologia(s) com versão detectada mas não consultada "
-            "na base End-of-Life. Verificação manual recomendada."
+            f"{len(unknown_items)} tecnologia(s) com versão detectada mas "
+            "ciclo de vida não consultado. Verificação manual recomendada."
         )
         status = "ATENÇÃO"
-        sev = None
     else:
         detail = "Todas as tecnologias verificadas estão sob suporte ativo."
         status = "CONFORME"
-        sev = None
 
     return {
-        "status":      status,
-        "severity":    sev,
-        "eol_items":   eol_items,
+        "status":       status,
+        "severity":     None,
+        "eol_items":    eol_items,
         "technologies": technologies_with_eol,
-        "detail":      detail,
+        "detail":       detail,
     }
 
 
@@ -425,12 +413,6 @@ def _build_conclusao(checks: dict, domain: str) -> str:
     for proto in ("TLS 1.2", "TLS 1.3"):
         if cripto.get(proto, {}).get("status") == "NÃO CONFORME":
             non_conformidades.append(f"não suporta {proto}")
-
-    aplic = checks.get("aplicacoes", {})
-    if aplic.get("status") == "NÃO CONFORME":
-        eols = aplic.get("eol_items", [])
-        nomes = ", ".join(f"{t['name']} {t.get('version','')}" for t in eols[:3])
-        non_conformidades.append(f"utiliza tecnologias sem suporte de segurança ({nomes})")
 
     portas = checks.get("portas", {})
     if portas.get("status") == "NÃO CONFORME":
