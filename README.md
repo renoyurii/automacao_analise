@@ -1,97 +1,159 @@
-# Automação de Análise
+# Automação da Análise de Homologação de Leiloeiros Judiciais
 
-Sistema automatizado para análise de documentos e segurança com geração de relatórios estruturados.
+Pipeline automatizado para conferência de segurança da informação de sites de leiloeiros judiciais, conforme o **PAT-GABPRES-038-01** do TJRJ. Recebe a declaração documental do leiloeiro (PDF/DOCX) e a URL pública do site, executa varredura ativa, cruza com regras de conformidade e gera a Ficha de Verificação institucional em `.docx` e `.pdf`.
 
-## 🎯 Funcionalidades
+> Departamento de Segurança da Informação (DESEG) · SEAUD · GABPRES · TJRJ
 
-- **M1 - Parser**: Extração híbrida de dados de documentos (PDF, DOCX) — regex baseline + Claude LLM (tool use) quando `ANTHROPIC_API_KEY` está configurada. Inclui Vision AI para páginas-imagem.
-- **M2 - Scanner**: Análise de segurança (Shodan, SSL Labs, Whois, Wappalyzer, Headers)
-- **M3 - Engine**: Comparação de dados e verificação de EOL
-- **M4 - Reporter**: Geração de relatórios e fichas estruturadas
+## Pipeline
 
-## 📋 Requisitos
+```
+Declaração (PDF/DOCX) + URL
+              │
+              ▼
+   ┌──────────────────────────┐
+   │  M1 — Parser             │   Vision AI + LLM (tool use) + regex fallback
+   │  Extrai claimed_data     │
+   └──────────────────────────┘
+              │
+              ▼
+   ┌──────────────────────────┐
+   │  M2 — Scanner            │   Headers · Wappalyzer · SSL Labs
+   │  Varredura ativa         │   Shodan · WHOIS · Portas
+   └──────────────────────────┘
+              │
+              ▼
+   ┌──────────────────────────┐
+   │  M3 — Engine             │   Cruza claimed × scan
+   │  Decisão de conformidade │   EOL (informativo) · regras OWASP/PAT
+   └──────────────────────────┘
+              │
+              ▼
+   ┌──────────────────────────┐
+   │  M4 — Reporter           │   Gera Ficha em .docx + .pdf nativo
+   │  (Identidade TJRJ)       │
+   └──────────────────────────┘
+```
+
+## Funcionalidades por módulo
+
+### M1 — Parser de documentos
+Extração estruturada de declarações do leiloeiro a partir de arquivos PDF/DOCX. Arquitetura híbrida em camadas:
+
+| Camada | Quando roda | O que faz |
+|---|---|---|
+| `pdf_reader` / `docx_reader` | Sempre | Texto bruto + detecção de páginas-imagem |
+| `vision_extractor` | `ANTHROPIC_API_KEY` + páginas sem texto | Descreve diagramas/fluxos via Claude Vision |
+| `claim_extractor` (regex) | Sempre | Baseline + `raw_sections` para evidências no M4 |
+| `llm_extractor` (Tool Use) | `ANTHROPIC_API_KEY` configurada | **Fonte primária** de verdade — Schema fixo + citação textual por item |
+
+Output (`claimed_data`): booleanos auditáveis (`backup_claimed`, `redundancy_claimed`, …), listas de tecnologias declaradas, e — quando o LLM rodou — `llm_evidence` com a citação exata do documento usada para cada decisão.
+
+### M2 — Scanner de varredura ativa
+- **Headers HTTP** — IP, CDN/WAF (Cloudflare, Akamai, Fastly, AWS CloudFront…), redirect chain
+- **Wappalyzer scan** — 40+ assinaturas (CMS, frameworks, JS bundles, CDNs, payment, analytics) via HTML/headers/cookies
+- **SSL Labs** (Qualys) — grade, protocolos TLS/SSL, HSTS, cifras, SNI
+- **Shodan** (opcional, requer `SHODAN_API_KEY`) — portas abertas
+- **WHOIS** — proprietário, expiração de domínio
+- **Port scan** — fallback nativo quando Shodan indisponível
+
+### M3 — Engine de decisão
+Cruza o `claimed_data` (M1) com `scan_data` (M2) e produz status por item:
+
+| Status | Significado |
+|---|---|
+| `CONFORME` | Verificado e dentro do esperado |
+| `NÃO CONFORME` | Verificado e fora do esperado (com severidade: `CRITICO`/`ALTO`/`MEDIO`/`BAIXO`) |
+| `NÃO VERIFICÁVEL` | Não é possível confirmar via scan externo |
+| `ATENÇÃO` | Tecnicamente conforme, mas com ressalva (ex: tecnologia EOL informativa) |
+
+Regra de ouro: varredura ativa tem **prioridade absoluta** quando consegue verificar. Nunca marca `NÃO CONFORME` por falta de evidência.
+
+### M4 — Reporter
+- **DOCX** (`ficha_builder.py`) — segue exatamente o modelo institucional do PAT
+- **PDF** (`pdf_builder.py`) — gerado nativamente via `fpdf2`, sem dependência de LibreOffice/Word, com paginação correta via API `table()`
+
+## Requisitos
 
 - Python 3.8+
-- Dependências listadas em `requirements.txt`
+- Dependências em `requirements.txt`: `pdfplumber`, `pypdf`, `python-docx`, `anthropic`, `pillow`, `requests`, `beautifulsoup4`, `shodan`, `python-whois`, `builtwith`, `streamlit`, `pandas`, `python-dotenv`, `tqdm`, `colorama`, `fpdf2`
 
-## 🚀 Instalação
+## Instalação
 
-1. Clone o repositório:
 ```bash
-git clone https://github.com/seu-usuario/automacao_analise.git
+git clone https://github.com/renoyurii/automacao_analise.git
 cd automacao_analise
-```
-
-2. Crie um ambiente virtual:
-```bash
-python -m venv venv
-source venv/bin/activate  # No Windows: venv\Scripts\activate
-```
-
-3. Instale as dependências:
-```bash
+python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
-```
-
-4. Configure as variáveis de ambiente (se necessário):
-```bash
 cp .env.example .env
-# Edite o arquivo .env com suas configurações
+# Edite .env com suas chaves
 ```
 
-### Extração via Claude (recomendado)
+### Configuração de chaves
 
-Para documentos com phrasing variado ou conteúdo em diagramas, configure `ANTHROPIC_API_KEY` no `.env`. Isso ativa simultaneamente:
+| Variável | Status | Função |
+|---|---|---|
+| `ANTHROPIC_API_KEY` | **Recomendado** | Ativa Vision AI + LLM extractor (extração robusta) |
+| `SHODAN_API_KEY` | Opcional | Ativa scan de portas via Shodan (fallback: scan TCP nativo) |
+| `M1_LLM_MODEL` | Opcional | Default `claude-haiku-4-5-20251001`. Use Sonnet para mais precisão |
+| `M1_LLM_DISABLE` | Opcional | `=1` força fallback regex mesmo com a key configurada |
 
-- **Vision AI** — descreve páginas-imagem (diagramas, fluxos) em texto
-- **Extração via LLM** — substitui o regex como fonte primária, com Tool Use estruturado e citação textual por item declarado (auditável)
+> **Custo estimado com Claude Haiku 4.5**: ~$0.002 por análise completa (Vision + LLM com prompt cache).
 
-Variáveis opcionais:
-- `M1_LLM_MODEL` — default `claude-haiku-4-5-20251001`. Use Sonnet para mais precisão.
-- `M1_LLM_DISABLE=1` — força fallback regex mesmo com a key configurada.
+## Uso
 
-## 💻 Uso
-
-Para iniciar a interface web:
+**Interface web** (Streamlit):
 ```bash
-python3 -m streamlit run app_ui.py
+streamlit run app_ui.py
 ```
+Suba a URL do site e o(s) PDF(s) da declaração. A análise leva ~3 minutos (gargalo: SSL Labs). Saída na própria página: Ficha em `.docx` e `.pdf`, tabelas de verificações e tecnologias, dados brutos.
 
-Para usar pela linha de comando:
+**Linha de comando**:
 ```bash
 python3 main.py --url https://www.exemplo.com.br --doc caminho/para/declaracao.pdf
 ```
 
-## 📁 Estrutura do Projeto
+## Estrutura
 
 ```
 automacao_analise/
 ├── modules/
-│   ├── m1_parser/          # Extração de dados
-│   ├── m2_scanner/         # Análise de segurança
-│   ├── m3_engine/          # Processamento e comparação
-│   └── m4_reporter/        # Geração de relatórios
-├── output/                 # Arquivos de saída
-├── tests/                  # Testes automatizados
-├── config.py              # Configurações
-├── main.py                # Entrada principal
-└── app_ui.py              # Interface gráfica
+│   ├── m1_parser/              # Extração de declaração
+│   │   ├── pdf_reader.py
+│   │   ├── docx_reader.py
+│   │   ├── vision_extractor.py # Claude Vision (imagens)
+│   │   ├── claim_extractor.py  # Regex (baseline)
+│   │   └── llm_extractor.py    # Claude Tool Use (autoritativo)
+│   ├── m2_scanner/             # Varredura ativa
+│   │   ├── headers_scan.py
+│   │   ├── wappalyzer_scan.py
+│   │   ├── ssl_labs.py
+│   │   ├── shodan_scan.py
+│   │   ├── whois_lookup.py
+│   │   └── port_scan.py
+│   ├── m3_engine/              # Decisão de conformidade
+│   │   ├── comparator.py
+│   │   └── eol_checker.py
+│   └── m4_reporter/            # Geração de relatório
+│       ├── ficha_builder.py    # DOCX
+│       └── pdf_builder.py      # PDF nativo
+├── docs/referencia/            # PAT, RAD, modelo de ficha
+├── output/                     # Fichas geradas
+├── tests/                      # Testes automatizados
+├── app_ui.py                   # Interface Streamlit
+├── main.py                     # CLI
+├── config.py                   # Configurações compartilhadas
+├── requirements.txt
+└── .env.example
 ```
 
-## 🧪 Testes
+## Testes
 
-Execute os testes com:
 ```bash
-python -m pytest tests/
+python3 -m pytest tests/
 ```
 
-## 📝 Configuração
+Os testes incluem casos reais com PDFs de leiloeiros já homologados (em `docs/referencia/relatorios_leiloeiros/`, gitignored). Sem `ANTHROPIC_API_KEY` no ambiente, alguns testes do M1 podem falhar — o LLM extractor é o caminho recomendado para passar todos.
 
-Edite `config.py` para personalizar comportamentos e conexões.
+## Licença
 
-## 📄 Licença
-
-
-
-## ✉️ Contato
-
+Uso interno — TJRJ / DESEG / SEAUD / GABPRES.
