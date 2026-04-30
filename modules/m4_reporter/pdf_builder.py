@@ -11,6 +11,27 @@ from typing import Any
 
 from fpdf import FPDF, XPos, YPos
 
+# ── Sanitização de texto para Latin-1 ────────────────────────────────────────
+# fpdf2 com fontes internas usa Latin-1. Dados do scanner podem conter
+# caracteres Unicode (em-dash, aspas tipográficas, etc.) que causam erro.
+# Sobrescrever normalize_text garante que QUALQUER texto passado ao PDF
+# seja limpo automaticamente, sem precisar tratar em cada chamada.
+
+_UNICODE_MAP = str.maketrans({
+    "—": "-",    # em dash
+    "–": "-",    # en dash
+    "‘": "'",    # aspas tipográficas simples esquerdas
+    "’": "'",    # aspas tipográficas simples direitas
+    "“": '"',    # aspas tipográficas duplas esquerdas
+    "”": '"',    # aspas tipográficas duplas direitas
+    "…": "...",  # reticências
+    "•": "*",    # bullet
+    "·": ".",    # ponto mediano
+    "→": "->",   # seta direita
+    " ": " ",    # espaço não-separável
+})
+
+
 # ── Paleta TJRJ ───────────────────────────────────────────────────────────────
 _C_PRIMARY   = (0,   61, 165)
 _C_DARK      = (0,   26, 110)
@@ -52,6 +73,11 @@ class _FichaPDF(FPDF):
         self.set_margins(left=15, top=25, right=15)
         self.set_auto_page_break(auto=True, margin=18)
 
+    def normalize_text(self, txt: str) -> str:
+        """Substitui chars fora do Latin-1 antes de passar ao encoder da fonte."""
+        txt = txt.translate(_UNICODE_MAP)
+        return txt.encode("latin-1", errors="replace").decode("latin-1")
+
     def header(self) -> None:
         # Barra azul
         self.set_fill_color(*_C_DARK)
@@ -60,7 +86,7 @@ class _FichaPDF(FPDF):
         self.set_xy(15, 4)
         self.set_font("Helvetica", "B", 12)
         self.set_text_color(*_C_WHITE)
-        self.cell(130, 7, "Ficha de Verificacao de Seguranca - Leiloeiro Judicial", border=0)
+        self.cell(130, 7, "Ficha de Verificação de Segurança — Leiloeiro Judicial", border=0)
         # Domínio + data à direita
         self.set_font("Helvetica", "", 7.5)
         self.set_text_color(190, 210, 245)
