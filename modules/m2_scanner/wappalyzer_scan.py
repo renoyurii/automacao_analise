@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import re
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 import builtwith
 import requests
@@ -43,9 +43,31 @@ _SCRIPT_SIGNATURES: list[tuple[str, str, str, str | None]] = [
     (r"Vue\s+v(\d+\.\d+(?:\.\d+)?)", "Framework JavaScript", "Vue.js", r"\1"),
     # Vue.js — sem versão (arquivo genérico ou detectado por atributos data-v-)
     (r"(?<!\w)vue(?:\.min|\.runtime(?:\.min)?)?\.js(?!\d)", "Framework JavaScript", "Vue.js", None),
+    # React — arquivo CDN ou local
+    (r"(?<!\w)react(?:\.development|\.production\.min|\.min)?\.js(?:[?#\s]|$)", "Framework JavaScript", "React", None),
+    (r"react-dom(?:\.development|\.production\.min|\.min)?\.js", "Framework JavaScript", "React", None),
+    # React — string de versão em bundle
+    (r'"react":\s*"(\d+\.\d+\.\d+)"', "Framework JavaScript", "React", r"\1"),
+    (r"React\.version\s*=\s*['\"](\d+\.\d+\.\d+)", "Framework JavaScript", "React", r"\1"),
+    # Next.js
+    (r"/_next/static/", "Framework JavaScript", "Next.js", None),
+    (r'"__NEXT_DATA__"', "Framework JavaScript", "Next.js", None),
+    (r'"buildId":\s*"[a-zA-Z0-9_-]{6,}"', "Framework JavaScript", "Next.js", None),
+    # Nuxt.js
+    (r"window\.__NUXT__\s*=", "Framework JavaScript", "Nuxt.js", None),
+    (r"/_nuxt/", "Framework JavaScript", "Nuxt.js", None),
+    (r"nuxt\.config\.", "Framework JavaScript", "Nuxt.js", None),
+    # Angular
+    (r'ng-version="(\d+\.\d+\.\d+)"', "Framework JavaScript", "Angular", r"\1"),
+    (r"@angular/core@(\d+\.\d+\.\d+)", "Framework JavaScript", "Angular", r"\1"),
+    (r"(?<!\w)angular(?:\.min)?\.js", "Framework JavaScript", "AngularJS", None),
+    # Svelte
+    (r"__svelte_|SvelteComponent|svelte/internal", "Framework JavaScript", "Svelte", None),
     # Bootstrap
     (r"bootstrap(?:\.min)?\.js", "UI Frameworks", "Bootstrap", None),
     (r"bootstrap(?:\.min)?\.css", "UI Frameworks", "Bootstrap", None),
+    # Tailwind CSS
+    (r"tailwindcss|tailwind\.config", "UI Frameworks", "Tailwind CSS", None),
     # Moment.js
     (r"moment(?:\.min)?\.js(?:\?v=(\d[\d.]+))?", "Biblioteca JavaScript", "Moment.js", r"\1"),
     # FancyBox
@@ -53,6 +75,23 @@ _SCRIPT_SIGNATURES: list[tuple[str, str, str, str | None]] = [
     # core-js (polyfill moderno) — CDN ou path versionado
     (r"core-js(?:@|[/\-])(\d+\.\d+(?:\.\d+)?)", "Biblioteca JavaScript", "core-js", r"\1"),
     (r"core-js(?:\.min)?\.js", "Biblioteca JavaScript", "core-js", None),
+    # Axios
+    (r"axios(?:\.min)?\.js(?:[?#\s]|$)", "Biblioteca JavaScript", "Axios", None),
+    # Lodash / Underscore
+    (r"lodash(?:\.min)?\.js", "Biblioteca JavaScript", "Lodash", None),
+    (r"underscore(?:\.min)?\.js", "Biblioteca JavaScript", "Underscore.js", None),
+    # Swiper
+    (r"swiper(?:\.min)?\.js", "Biblioteca JavaScript", "Swiper", None),
+    # DataTables
+    (r"datatables(?:\.min)?\.js", "Biblioteca JavaScript", "DataTables", None),
+    # Chart.js
+    (r"chart(?:\.min)?\.js(?:[?#\s\"']|$)", "Visualização de Dados", "Chart.js", None),
+    # D3.js
+    (r"(?<!\w)d3(?:\.min)?\.js|d3\.v\d+(?:\.min)?\.js", "Visualização de Dados", "D3.js", None),
+    # Leaflet
+    (r"leaflet(?:\.min)?\.js", "Mapa", "Leaflet", None),
+    # Google Maps
+    (r"maps\.googleapis\.com/maps/api/js", "Mapa", "Google Maps", None),
     # Font Awesome — kit CDN (kit.fontawesome.com/<hash>.js) ou arquivo local
     (r"kit\.fontawesome\.com", "Script de Fonte", "Font Awesome", None),
     (r"cdnjs\.cloudflare\.com/ajax/libs/font-awesome/(\d+[\d.]+)/", "Script de Fonte", "Font Awesome", r"\1"),
@@ -68,21 +107,60 @@ _SCRIPT_SIGNATURES: list[tuple[str, str, str, str | None]] = [
     (r"googletagmanager\.com/gtm\.js", "Gestor de Tags", "Google Tag Manager", None),
     # Google Analytics GA4
     (r"googletagmanager\.com/gtag/js\?id=G-", "Ferramenta Estatística", "Google Analytics (GA4)", "GA4"),
-    (r"google-analytics\.com/analytics\.js", "Ferramenta Estatística", "Google Analytics", None),
+    (r"google-analytics\.com/analytics\.js", "Ferramenta Estatística", "Google Analytics (UA)", None),
     # Google Fonts
     (r"fonts\.googleapis\.com", "Script de Fonte", "Google Font API", None),
     # Google Sign-in
     (r"apis\.google\.com/js/platform\.js", "Autenticação", "Google Sign-in", None),
+    # Facebook Pixel
+    (r"connect\.facebook\.net/[a-z_A-Z]+/fbevents\.js", "Ferramenta Estatística", "Facebook Pixel", None),
+    # Hotjar
+    (r"static\.hotjar\.com|/hjBootstrap\b", "Ferramenta Estatística", "Hotjar", None),
     # Cloudflare Insights
     (r"cloudflareinsights\.com", "Ferramenta Estatística", "Cloudflare Browser Insights", None),
+    # Sentry
+    (r"browser\.sentry-cdn\.com|sentry\.io/api/\d+/", "Monitoramento", "Sentry", None),
     # WhatsApp Business Chat
     (r"wa\.me|api\.whatsapp\.com|wa-widget", "Chat Direto", "WhatsApp Business Chat", None),
     # JivoChat
     (r"jivosite\.com|jivo\.chat", "Chat Direto", "JivoChat", None),
+    # Tawk.to
+    (r"embed\.tawk\.to", "Chat Direto", "Tawk.to", None),
+    # Zendesk
+    (r"ekr\.zdassets\.com|\.zendesk\.com/embeddable_framework", "Chat Direto", "Zendesk", None),
+    # Intercom
+    (r"js\.intercomcdn\.com|app\.intercom\.io|widget\.intercom\.io", "Chat Direto", "Intercom", None),
+    # Crisp
+    (r"client\.crisp\.chat", "Chat Direto", "Crisp", None),
+    # HubSpot
+    (r"js\.hs-scripts\.com|js\.hsforms\.net|js\.hubspot\.com", "Marketing", "HubSpot", None),
     # reCAPTCHA
     (r"google\.com/recaptcha", "Segurança", "reCAPTCHA", None),
+    # Stripe
+    (r"js\.stripe\.com/v(\d)", "Pagamento", "Stripe", r"\1"),
+    # PayPal
+    (r"paypalobjects\.com|paypal\.com/sdk/js", "Pagamento", "PayPal", None),
+    # PagSeguro
+    (r"pagseguro\.uol\.com\.br", "Pagamento", "PagSeguro", None),
+    # MercadoPago
+    (r"sdk\.mercadopago\.com|mercadopago\.com/v1/", "Pagamento", "MercadoPago", None),
+    # WordPress — caminhos característicos
+    (r"/wp-content/(?:themes|plugins|uploads)/", "CMS", "WordPress", None),
+    (r"/wp-includes/", "CMS", "WordPress", None),
+    # WooCommerce
+    (r"/wp-content/plugins/woocommerce/", "E-commerce", "WooCommerce", None),
+    # Shopify
+    (r"cdn\.shopify\.com|shopify\.com/s/files", "E-commerce", "Shopify", None),
+    # Magento
+    (r"Mage\.Cookies|require\.js.*mage/|magentoId", "E-commerce", "Magento", None),
+    # VTEX
+    (r"\.vteximg\.com|vtex\.com/api/|vtexcommerce", "E-commerce", "VTEX", None),
+    # Joomla
+    (r"/components/com_|/modules/mod_|joomla!", "CMS", "Joomla", None),
+    # Drupal
+    (r"Drupal\.settings|/sites/default/files/|drupal\.js", "CMS", "Drupal", None),
     # PWA
-    (r"manifest\.json|serviceWorker\.register", "Diversos", "PWA", None),
+    (r"serviceWorker\.register|manifest\.webmanifest", "Diversos", "PWA", None),
 ]
 
 _META_SIGNATURES: list[tuple[str, str, str, str | None]] = [
@@ -94,15 +172,47 @@ _META_SIGNATURES: list[tuple[str, str, str, str | None]] = [
 
 _HEADER_SIGNATURES: dict[str, tuple[str, str]] = {
     "strict-transport-security": ("Segurança", "HSTS"),
-    "content-security-policy":   ("Segurança", "Script de Fonte"),
+    "content-security-policy":   ("Segurança", "Content Security Policy"),
     "x-powered-by":              ("Servidor Web", None),   # Valor vira o nome
     "server":                    ("Servidor Web", None),
     "x-aspnet-version":          ("Framework Web", "Microsoft ASP.NET"),
     "x-aspnetmvc-version":       ("Framework Web", "Microsoft ASP.NET MVC"),
     "x-generator":               ("CMS", None),
     "x-drupal-cache":            ("CMS", "Drupal"),
+    "x-drupal-dynamic-cache":    ("CMS", "Drupal"),
     "x-wp-total":                ("CMS", "WordPress"),
+    "x-pingback":                ("CMS", "WordPress"),
+    # CDN / WAF / Proxy
+    "cf-ray":                    ("CDN", "Cloudflare"),
+    "cf-cache-status":           ("CDN", "Cloudflare"),
+    "x-amz-cf-id":               ("CDN", "Amazon CloudFront"),
+    "x-amz-cf-pop":              ("CDN", "Amazon CloudFront"),
+    "x-sucuri-id":               ("WAF", "Sucuri"),
+    "x-iinfo":                   ("WAF", "Incapsula/Imperva"),
+    "x-cdn":                     ("CDN", None),
+    # Cache / Servidor
+    "x-varnish":                 ("Cache", "Varnish"),
+    "x-litespeed-cache":         ("Servidor Web", "LiteSpeed"),
+    "x-litespeed-tag":           ("Servidor Web", "LiteSpeed"),
+    "x-nginx-cache":             ("Servidor Web", "Nginx"),
 }
+
+# Cookies identificadores de frameworks/linguagens
+_COOKIE_SIGNATURES: list[tuple[str, str, str]] = [
+    # (regex sobre nome do cookie, categoria, nome)
+    (r"PHPSESSID",           "Linguagem de Programação", "PHP"),
+    (r"laravel_session",     "Framework Web", "Laravel"),
+    (r"XSRF-TOKEN",          "Framework Web", "Laravel"),
+    (r"_rails_session",      "Framework Web", "Ruby on Rails"),
+    (r"django_session|csrftoken", "Framework Web", "Django"),
+    (r"ASP\.NET_SessionId",  "Framework Web", "ASP.NET"),
+    (r"JSESSIONID",          "Framework Web", "Java / Spring"),
+    (r"wp-settings-",        "CMS", "WordPress"),
+    (r"wordpress_",          "CMS", "WordPress"),
+    (r"__vtex_|janus_sid",   "E-commerce", "VTEX"),
+    (r"__shopify_s",         "E-commerce", "Shopify"),
+    (r"__cf_bm|__cfruid",    "CDN", "Cloudflare Bot Management"),
+]
 
 _ALT_SVC_HTTP3 = re.compile(r'\bh3\b', re.IGNORECASE)
 
@@ -121,7 +231,7 @@ def scan_wappalyzer(url: str) -> dict[str, Any]:
     }
     """
     try:
-        html, headers, final_url = _fetch_page(url)
+        html, headers, cookies, final_url = _fetch_page(url)
     except Exception as e:
         return {"technologies": [], "error": str(e)}
 
@@ -163,10 +273,13 @@ def scan_wappalyzer(url: str) -> dict[str, Any]:
     headers_lower = {k.lower(): v for k, v in headers.items()}
     _detect_from_headers(headers_lower, _add)
 
-    # 3. Detecção via HTML
+    # 3. Detecção via cookies
+    _detect_from_cookies(cookies, _add)
+
+    # 4. Detecção via HTML
     if html:
         src_texts = _detect_from_html(html, _add)
-        # 4. Busca de versões em bundles JS locais (Vue, React, etc. empacotados)
+        # 5. Busca de versões em bundles JS locais (Vue, React, etc. empacotados)
         _detect_from_bundles(src_texts, final_url, _add)
 
     # Ordena por categoria para saída consistente
@@ -177,8 +290,8 @@ def scan_wappalyzer(url: str) -> dict[str, Any]:
 
 # ── Detecção por fonte ────────────────────────────────────────────────────────
 
-def _fetch_page(url: str) -> tuple[str | None, dict, str]:
-    """Retorna (html, headers, final_url)."""
+def _fetch_page(url: str) -> tuple[str | None, dict, dict, str]:
+    """Retorna (html, headers, cookies, final_url)."""
     target = url if url.startswith("http") else f"https://{url}"
     resp = requests.get(
         target,
@@ -189,7 +302,7 @@ def _fetch_page(url: str) -> tuple[str | None, dict, str]:
     )
     ct = resp.headers.get("Content-Type", "")
     html = resp.text if "html" in ct else None
-    return html, dict(resp.headers), str(resp.url)
+    return html, dict(resp.headers), dict(resp.cookies), str(resp.url)
 
 
 def _detect_from_headers(
@@ -204,12 +317,30 @@ def _detect_from_headers(
         version = None
         if fixed_name is None and "/" in value:
             version = value.split("/", 1)[1].strip()
-        add(category, name, version)
+        if name:
+            add(category, name, version)
 
     # HTTP/3 via alt-svc
     alt_svc = headers.get("alt-svc", "")
     if _ALT_SVC_HTTP3.search(alt_svc):
         add("Diversos", "HTTP/3")
+
+    # x-cache pode revelar CDN (ex: "Hit from cloudfront", "HIT via Fastly")
+    x_cache = headers.get("x-cache", "").lower()
+    if "cloudfront" in x_cache:
+        add("CDN", "Amazon CloudFront")
+    elif "fastly" in x_cache:
+        add("CDN", "Fastly")
+    elif "varnish" in x_cache:
+        add("Cache", "Varnish")
+
+
+def _detect_from_cookies(cookies: dict[str, str], add: Any) -> None:
+    for cookie_name in cookies:
+        for pattern, category, name in _COOKIE_SIGNATURES:
+            if re.search(pattern, cookie_name, re.IGNORECASE):
+                add(category, name)
+                break
 
 
 def _detect_from_html(html: str, add: Any) -> list[str]:
@@ -250,6 +381,36 @@ def _detect_from_html(html: str, add: Any) -> list[str]:
     if re.search(r'\bdata-v-[a-f0-9]{6,8}\b', html):
         add("Framework JavaScript", "Vue.js")
 
+    # React — atributo data-reactroot ou data-react-helmet
+    if soup.find(attrs={"data-reactroot": True}) or soup.find(attrs={"data-react-helmet": True}):
+        add("Framework JavaScript", "React")
+
+    # React — div#__next indica Next.js
+    if soup.find("div", id="__next"):
+        add("Framework JavaScript", "Next.js")
+        add("Framework JavaScript", "React")
+
+    # Nuxt.js — div#__nuxt
+    if soup.find("div", id="__nuxt") or soup.find("div", id="app", attrs={"data-server-rendered": True}):
+        add("Framework JavaScript", "Nuxt.js")
+
+    # Angular — ng-version em qualquer elemento
+    if soup.find(attrs={"ng-version": True}):
+        el = soup.find(attrs={"ng-version": True})
+        add("Framework JavaScript", "Angular", el.get("ng-version"))
+
+    # Angular — ng-app (AngularJS)
+    if soup.find(attrs={"ng-app": True}):
+        add("Framework JavaScript", "AngularJS")
+
+    # WordPress — link rel="https://api.w.org/"
+    if soup.find("link", rel=re.compile(r"api\.w\.org", re.I)):
+        add("CMS", "WordPress")
+
+    # WordPress — REST API endpoint no HTML
+    if re.search(r'"wp-json"', html, re.IGNORECASE):
+        add("CMS", "WordPress")
+
     # Meta OpenGraph
     og_tags = soup.find_all("meta", property=re.compile(r"^og:", re.I))
     if og_tags:
@@ -273,13 +434,20 @@ _BUNDLE_CDN_EXCLUDE = re.compile(
 _BUNDLE_SIGNATURES: list[tuple[str, str, str]] = [
     (r"Vue\.js\s+v(\d+\.\d+\.\d+)",              "Framework JavaScript", "Vue.js"),
     (r'"vue":\s*"(\d+\.\d+\.\d+)"',              "Framework JavaScript", "Vue.js"),
-    (r"React\s+v(\d+\.\d+\.\d+)",                "Framework JavaScript", "React"),
+    (r'React\s*[,\s]\s*version[:\s]+"(\d+\.\d+\.\d+)"', "Framework JavaScript", "React"),
+    (r"React\.version\s*=\s*['\"](\d+\.\d+\.\d+)", "Framework JavaScript", "React"),
+    (r'"react":\s*"(\d+\.\d+\.\d+)"',            "Framework JavaScript", "React"),
+    (r"next[/ ](\d+\.\d+\.\d+)|\"next\":\s*\"(\d+\.\d+\.\d+)\"", "Framework JavaScript", "Next.js"),
+    (r"nuxt[/ ]v?(\d+\.\d+\.\d+)|\"nuxt\":\s*\"(\d+\.\d+\.\d+)\"", "Framework JavaScript", "Nuxt.js"),
     (r"core-js[/ ](?:v|version[:\s]+)?(\d+\.\d+(?:\.\d+)?)", "Biblioteca JavaScript", "core-js"),
     (r"angular[/ ]v?(\d+\.\d+\.\d+)",            "Framework JavaScript", "Angular"),
+    (r"svelte[/ ]v?(\d+\.\d+\.\d+)|\"svelte\":\s*\"(\d+\.\d+\.\d+)\"", "Framework JavaScript", "Svelte"),
+    (r"axios[/ ]v?(\d+\.\d+\.\d+)|\"axios\":\s*\"(\d+\.\d+\.\d+)\"",   "Biblioteca JavaScript", "Axios"),
 ]
 
 _BUNDLE_MARKERS: list[tuple[str, str, str]] = [
     (r"window\.webpackJsonp|__webpack_require__", "Diversos", "Webpack"),
+    (r"\bReact\b.*createElement|createElement.*\bReact\b", "Framework JavaScript", "React"),
 ]
 
 _BUNDLE_MAX_BYTES = 600_000   # 600 KB por bundle
@@ -288,8 +456,6 @@ _BUNDLE_MAX_FETCH = 4         # máximo de bundles a buscar
 
 def _detect_from_bundles(src_texts: list[str], base_url: str, add: Any) -> None:
     """Busca versões de frameworks e marcadores em bundles JS locais."""
-    from urllib.parse import urljoin
-
     local_js = [
         s for s in src_texts
         if s.endswith(".js")

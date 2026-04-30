@@ -1,10 +1,13 @@
 import os
+from pathlib import Path
+
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(Path(__file__).parent / ".env")
 
-# ── Shodan ────────────────────────────────────────────────────────────────────
-SHODAN_API_KEY: str = os.getenv("SHODAN_API_KEY", "")
+# ── APIs externas ─────────────────────────────────────────────────────────────
+SHODAN_API_KEY: str     = os.getenv("SHODAN_API_KEY", "")
+ANTHROPIC_API_KEY: str  = os.getenv("ANTHROPIC_API_KEY", "")
 
 # ── Qualys SSL Labs ───────────────────────────────────────────────────────────
 SSL_LABS_API_BASE = "https://api.ssllabs.com/api/v3"

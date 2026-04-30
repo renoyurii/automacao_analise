@@ -1,13 +1,11 @@
 """
 Interface web — Sistema de Análise Automatizada de Segurança.
 DESEG / SEAUD / GABPRES — TJRJ
-
-Uso:
-    streamlit run app_ui.py
 """
 
 from __future__ import annotations
 
+import base64
 import os
 import sys
 import tempfile
@@ -18,24 +16,29 @@ from urllib.parse import urlparse
 
 import pandas as pd
 import streamlit as st
+from dotenv import load_dotenv
 
-# Garante que os imports do projeto funcionam de qualquer diretório
 sys.path.insert(0, str(Path(__file__).parent))
+load_dotenv(Path(__file__).parent / ".env")
 
 
-# ── Helpers de exibição (definidos antes do uso) ──────────────────────────────
+# ── Page config (must be first Streamlit call) ─────────────────────────────────
 
-_STATUS_EMOJI = {
-    "CONFORME":        "✅",
-    "NÃO CONFORME":    "❌",
-    "ATENÇÃO":         "⚠️",
-    "NÃO VERIFICÁVEL": "🔵",
-}
+st.set_page_config(
+    page_title="DESEG — Homologação de Leiloeiros",
+    page_icon="⚖️",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
+
+
+# ── Design tokens ──────────────────────────────────────────────────────────────
+
 _STATUS_BG = {
-    "CONFORME":        "#e8f5e9",
-    "NÃO CONFORME":    "#ffebee",
-    "ATENÇÃO":         "#fff3e0",
-    "NÃO VERIFICÁVEL": "#eceff1",
+    "CONFORME":        "#E8F5E9",
+    "NÃO CONFORME":    "#FFEBEE",
+    "ATENÇÃO":         "#FFF3E0",
+    "NÃO VERIFICÁVEL": "#ECEFF1",
 }
 _STATUS_FG = {
     "CONFORME":        "#2E7D32",
@@ -43,6 +46,127 @@ _STATUS_FG = {
     "ATENÇÃO":         "#E65100",
     "NÃO VERIFICÁVEL": "#546E7A",
 }
+_STATUS_ICON = {
+    "CONFORME":        "✅",
+    "NÃO CONFORME":    "❌",
+    "ATENÇÃO":         "⚠️",
+    "NÃO VERIFICÁVEL": "🔵",
+}
+
+
+# ── CSS ────────────────────────────────────────────────────────────────────────
+
+st.markdown("""
+<style>
+/* ─ Background ─ */
+[data-testid="stAppViewContainer"] > .main {
+    background-color: #EEF2F8;
+}
+.block-container {
+    padding: 1.8rem 2.2rem 3rem;
+    max-width: 1080px;
+}
+
+/* ─ Sidebar ─ */
+[data-testid="stSidebar"] {
+    background: linear-gradient(180deg, #001A6E 0%, #0039C2 100%);
+    border-right: none;
+}
+[data-testid="stSidebar"] p,
+[data-testid="stSidebar"] span,
+[data-testid="stSidebar"] small,
+[data-testid="stSidebar"] label,
+[data-testid="stSidebar"] div { color: rgba(225,235,255,.9) !important; }
+[data-testid="stSidebar"] strong { color: #FFFFFF !important; }
+[data-testid="stSidebar"] hr    { border-color: rgba(255,255,255,.12) !important; }
+
+/* ─ Header ─ */
+.tjrj-header {
+    background: linear-gradient(130deg, #001257 0%, #003DA5 55%, #1565C0 100%);
+    color: white;
+    padding: 2rem 2.5rem 1.8rem;
+    border-radius: 12px;
+    margin-bottom: 2rem;
+    box-shadow: 0 6px 24px rgba(0,29,110,.18);
+}
+.tjrj-header h1 {
+    font-size: 1.5rem;
+    font-weight: 700;
+    margin: 0 0 .3rem;
+    letter-spacing: -.4px;
+    color: white;
+}
+.tjrj-header p {
+    font-size: .82rem;
+    margin: 0;
+    color: rgba(255,255,255,.72);
+    letter-spacing: .2px;
+}
+
+/* ─ Cards ─ */
+.card {
+    background: white;
+    border-radius: 10px;
+    box-shadow: 0 1px 4px rgba(0,0,0,.07), 0 2px 12px rgba(0,0,0,.04);
+    padding: 1.4rem 1.8rem;
+    margin-bottom: 1.1rem;
+}
+.card-conforme     { border-left: 5px solid #2E7D32; }
+.card-nao-conforme { border-left: 5px solid #C62828; }
+
+/* ─ Result ─ */
+.result-status {
+    font-size: 1.5rem;
+    font-weight: 700;
+    letter-spacing: -.4px;
+}
+.result-meta     { font-size: .78rem; color: #90A4AE; margin-bottom: .6rem; }
+.result-conclusao { font-size: .9rem; color: #455A64; margin-top: .5rem; line-height: 1.5; }
+.conforme-text    { color: #2E7D32; }
+.nao-conforme-text{ color: #C62828; }
+
+/* ─ Sidebar logo area ─ */
+.sb-logo { padding: 1.6rem 0 1.2rem; text-align: center; }
+.sb-logo-icon { font-size: 2.6rem; }
+.sb-logo-name { font-size: 1.05rem; font-weight: 700; color: white !important; letter-spacing: .5px; margin-top: .4rem; }
+.sb-logo-sub  { font-size: .68rem; color: rgba(255,255,255,.55) !important; letter-spacing: 1.2px; text-transform: uppercase; margin-top: .15rem; }
+
+/* ─ Sidebar section ─ */
+.sb-section { margin-bottom: .2rem; }
+.sb-item    { font-size: .82rem; padding: .18rem 0; }
+.sb-label   { font-size: .65rem; letter-spacing: 1px; text-transform: uppercase; color: rgba(255,255,255,.45) !important; margin-bottom: .4rem; display: block; }
+
+/* ─ Inputs ─ */
+[data-testid="stTextInput"] input {
+    border-radius: 7px;
+    border-color: #CBD5E1;
+}
+
+/* ─ Buttons ─ */
+[data-testid="stDownloadButton"] button {
+    border-radius: 7px;
+    font-weight: 500;
+}
+
+/* ─ Expander ─ */
+[data-testid="stExpander"] {
+    border-radius: 8px !important;
+    border-color: #DDE5EF !important;
+}
+
+/* ─ Tabs ─ */
+[data-testid="stTabs"] [data-baseweb="tab"] {
+    font-size: .88rem;
+}
+</style>
+""", unsafe_allow_html=True)
+
+
+# ── Helpers ────────────────────────────────────────────────────────────────────
+
+def _domain_from_url(url: str) -> str:
+    parsed = urlparse(url if "://" in url else f"https://{url}")
+    return (parsed.netloc or parsed.path).lstrip("www.").split(":")[0]
 
 
 def _flatten_checks(checks: dict, prefix: str = "") -> list[dict]:
@@ -63,8 +187,8 @@ def _flatten_checks(checks: dict, prefix: str = "") -> list[dict]:
 
 def _eol_label(tech: dict) -> str:
     if tech.get("eol") is True:
-        eol_date = tech.get("eol_date")
-        return "❌ EOL" + (f" ({eol_date})" if eol_date else "")
+        d = tech.get("eol_date")
+        return "❌ EOL" + (f" ({d})" if d else "")
     if tech.get("eol") is False:
         return "✅ Suportado"
     if tech.get("version") and tech.get("checked"):
@@ -73,11 +197,10 @@ def _eol_label(tech: dict) -> str:
 
 
 def _color_status_row(row: pd.Series) -> list[str]:
-    raw_status = row.get("Status", "")
-    # Remove emoji prefix para recuperar a chave
-    status_key = raw_status.split(" ", 1)[-1] if " " in raw_status else raw_status
-    bg = _STATUS_BG.get(status_key, "")
-    fg = _STATUS_FG.get(status_key, "")
+    raw = row.get("Status", "")
+    key = raw.split(" ", 1)[-1] if " " in raw else raw
+    bg  = _STATUS_BG.get(key, "")
+    fg  = _STATUS_FG.get(key, "")
     return [
         f"background-color:{bg};color:{fg}" if col == "Status" else ""
         for col in row.index
@@ -86,20 +209,36 @@ def _color_status_row(row: pd.Series) -> list[str]:
 
 def _color_eol_row(row: pd.Series) -> list[str]:
     eol = row.get("EOL", "")
-    if "EOL" in eol and "❌" in eol:
-        return ["", "", "", "background-color:#ffebee;color:#C62828"]
+    if "❌" in eol:
+        return ["", "", "", "background-color:#FFEBEE;color:#C62828"]
     if "✅" in eol:
-        return ["", "", "", "background-color:#e8f5e9;color:#2E7D32"]
+        return ["", "", "", "background-color:#E8F5E9;color:#2E7D32"]
     return ["", "", "", ""]
 
 
-def _domain_from_url(url: str) -> str:
-    parsed = urlparse(url if "://" in url else f"https://{url}")
-    return (parsed.netloc or parsed.path).lstrip("www.").split(":")[0]
+def _show_pdf_embed(pdf_bytes: bytes) -> None:
+    """Embed PDF viewer using base64 iframe."""
+    mb = len(pdf_bytes) / (1024 * 1024)
+    if mb > 30:
+        st.warning(f"Arquivo grande ({mb:.0f} MB) — pré-visualização pode ser lenta.")
+
+    b64 = base64.b64encode(pdf_bytes).decode()
+    st.markdown(
+        f"""
+        <div style="border:1px solid #DDE5EF;border-radius:8px;overflow:hidden;">
+            <iframe
+                src="data:application/pdf;base64,{b64}#toolbar=0&navpanes=0"
+                width="100%"
+                height="700px"
+                style="border:none;display:block;"
+            ></iframe>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def _merge_claimed(claims: list[dict]) -> dict:
-    """Mescla claimed_data de múltiplos documentos num único dict."""
     if len(claims) == 1:
         return claims[0]
 
@@ -114,16 +253,12 @@ def _merge_claimed(claims: list[dict]) -> dict:
     str_fields = ["monitoring_url", "update_routine"]
 
     merged: dict = {}
-
     for field in bool_fields:
         vals = [c.get(field) for c in claims]
-        if any(v is True for v in vals):
-            merged[field] = True
-        elif any(v is False for v in vals):
-            merged[field] = False
-        else:
-            merged[field] = None
-
+        merged[field] = (
+            True  if any(v is True  for v in vals) else
+            False if any(v is False for v in vals) else None
+        )
     for field in list_fields:
         seen: list = []
         for c in claims:
@@ -131,16 +266,14 @@ def _merge_claimed(claims: list[dict]) -> dict:
                 if item not in seen:
                     seen.append(item)
         merged[field] = seen
-
     for field in str_fields:
         merged[field] = next((c.get(field) for c in claims if c.get(field)), None)
 
-    # Mescla seções brutas: concatena fragmentos de documentos diferentes
-    all_sec_keys: set[str] = set()
+    all_keys: set[str] = set()
     for c in claims:
-        all_sec_keys.update((c.get("raw_sections") or {}).keys())
-    raw_sections: dict[str, str] = {}
-    for key in all_sec_keys:
+        all_keys.update((c.get("raw_sections") or {}).keys())
+    raw_sections: dict = {}
+    for key in all_keys:
         parts = [
             (c.get("raw_sections") or {}).get(key, "").strip()
             for c in claims
@@ -148,210 +281,158 @@ def _merge_claimed(claims: list[dict]) -> dict:
         ]
         raw_sections[key] = " [...] ".join(parts)
     merged["raw_sections"] = raw_sections
-
     merged["image_page_count"] = sum(c.get("image_page_count", 0) or 0 for c in claims)
     return merged
 
 
 def _parse_all_documents(paths: list[str]) -> dict:
-    """Faz o parsing de todos os documentos e mescla os resultados."""
     from modules.m1_parser import parse_document
-    claims = [parse_document(p) for p in paths]
-    return _merge_claimed(claims)
+    return _merge_claimed([parse_document(p) for p in paths])
 
 
-def _display_results(rd: dict, ficha_path: str) -> None:
-    overall   = rd.get("overall_status", "?")
-    domain    = rd.get("domain", "")
-    anal_date = rd.get("analysis_date", date.today().isoformat())
-    conclusao = rd.get("conclusao", "")
-    checks    = rd.get("checks", {})
-    techs     = rd.get("raw", {}).get("technologies", [])
+# ── Sidebar ────────────────────────────────────────────────────────────────────
 
-    is_ok      = (overall == "CONFORME")
-    card_class = "overall-conforme" if is_ok else "overall-nao-conforme"
-    text_class = "text-conforme"    if is_ok else "text-nao-conforme"
-    icon       = "✅" if is_ok else "❌"
+with st.sidebar:
+    st.markdown("""
+    <div class="sb-logo">
+        <div class="sb-logo-icon">⚖️</div>
+        <div class="sb-logo-name">DESEG</div>
+        <div class="sb-logo-sub">TJRJ · GABPRES</div>
+    </div>
+    """, unsafe_allow_html=True)
 
-    # ── Card de resultado ─────────────────────────────────────────────────────
-    col_info, col_dl = st.columns([3, 1])
+    st.markdown("---")
 
-    with col_info:
-        st.markdown(f"""
-        <div class="card {card_class}">
-          <div style="font-size:.8rem;color:#546E7A;">🌐 {domain} &nbsp;·&nbsp; {anal_date}</div>
-          <div class="overall-text {text_class}">{icon} {overall}</div>
-          <div style="margin-top:.4rem;font-size:.9rem;">{conclusao}</div>
-        </div>
-        """, unsafe_allow_html=True)
+    vision_active = bool(os.environ.get("ANTHROPIC_API_KEY", "").strip())
 
-    with col_dl:
-        st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-        with open(ficha_path, "rb") as f:
-            st.download_button(
-                label="⬇️  Baixar Ficha (.docx)",
-                data=f.read(),
-                file_name=Path(ficha_path).name,
-                mime=(
-                    "application/vnd.openxmlformats-officedocument"
-                    ".wordprocessingml.document"
-                ),
-                use_container_width=True,
-            )
-        st.caption(f"`{Path(ficha_path).name}`")
+    # LLM Extractor compartilha a mesma key, mas pode ser desativado via M1_LLM_DISABLE
+    llm_extract_active = vision_active and os.environ.get("M1_LLM_DISABLE", "") != "1"
 
-    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown('<span class="sb-label">Componentes</span>', unsafe_allow_html=True)
+    st.markdown(f"""
+    <div class="sb-section">
+        <div class="sb-item">{"🟢" if llm_extract_active else "⚪"} Extração via Claude {"ativa" if llm_extract_active else "inativa"}</div>
+        <div class="sb-item">{"🟢" if vision_active else "⚪"} Vision AI {"ativa" if vision_active else "inativa"}</div>
+        <div class="sb-item">🟢 SSL Labs (Qualys)</div>
+        <div class="sb-item">🟢 endoflife.date</div>
+    </div>
+    """, unsafe_allow_html=True)
 
-    # ── Tabela de verificações ────────────────────────────────────────────────
-    st.subheader("Verificações")
-    rows = _flatten_checks(checks)
-    df_checks = pd.DataFrame([
-        {
-            "Seção":      r["label"],
-            "Status":     f"{_STATUS_EMOJI.get(r['status'], '?')} {r['status']}",
-            "Severidade": r["severity"] or "—",
-            "Detalhe":    r["detail"],
-        }
-        for r in rows
-    ])
-    st.dataframe(
-        df_checks.style.apply(_color_status_row, axis=1),
-        use_container_width=True,
-        hide_index=True,
-        column_config={
-            "Seção":      st.column_config.TextColumn(width="medium"),
-            "Status":     st.column_config.TextColumn(width="medium"),
-            "Severidade": st.column_config.TextColumn(width="small"),
-            "Detalhe":    st.column_config.TextColumn(width="large"),
-        },
+    st.markdown("---")
+
+    st.markdown('<span class="sb-label">Pipeline</span>', unsafe_allow_html=True)
+    st.markdown("""
+    <div class="sb-section">
+        <div class="sb-item">M1 · Parsing de documentos</div>
+        <div class="sb-item">M2 · Varredura do site</div>
+        <div class="sb-item">M3 · Análise de conformidade</div>
+        <div class="sb-item">M4 · Geração de relatório</div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("---")
+    st.markdown(
+        '<div style="font-size:.72rem;color:rgba(255,255,255,.4);text-align:center;padding-top:.4rem;">'
+        "SEAUD · GABPRES · TJRJ<br>v2.0 · 2026"
+        "</div>",
+        unsafe_allow_html=True,
     )
 
-    # ── Tecnologias detectadas ────────────────────────────────────────────────
-    if techs:
-        st.subheader("Tecnologias detectadas")
-        df_techs = pd.DataFrame([
-            {
-                "Categoria":  t.get("category", ""),
-                "Tecnologia": t.get("name", ""),
-                "Versão":     t.get("version") or "—",
-                "EOL":        _eol_label(t),
-            }
-            for t in sorted(techs, key=lambda x: (x.get("category", ""), x.get("name", "")))
-        ])
-        st.dataframe(
-            df_techs.style.apply(_color_eol_row, axis=1),
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "Categoria":  st.column_config.TextColumn(width="medium"),
-                "Tecnologia": st.column_config.TextColumn(width="medium"),
-                "Versão":     st.column_config.TextColumn(width="small"),
-                "EOL":        st.column_config.TextColumn(width="small"),
-            },
-        )
 
-    # ── Dados brutos ──────────────────────────────────────────────────────────
-    with st.expander("🔎 Dados brutos (WHOIS · Cabeçalhos HTTP · SSL Labs)"):
-        raw = rd.get("raw", {})
-        tab_whois, tab_hdrs, tab_ssl = st.tabs(["WHOIS", "Cabeçalhos HTTP", "SSL Labs"])
-
-        with tab_whois:
-            st.code(raw.get("whois_raw", "Não disponível"), language=None)
-        with tab_hdrs:
-            st.code(raw.get("headers_raw_block", "Não disponível"), language=None)
-        with tab_ssl:
-            ssl = raw.get("ssl_labs", {})
-            st.json({k: v for k, v in ssl.items() if k != "raw_endpoints"})
-
-
-# ── Configuração da página ────────────────────────────────────────────────────
-
-st.set_page_config(
-    page_title="DESEG — Homologação de Leiloeiros",
-    page_icon="⚖️",
-    layout="wide",
-    initial_sidebar_state="collapsed",
-)
+# ── Header ─────────────────────────────────────────────────────────────────────
 
 st.markdown("""
-<style>
-    .block-container  { padding-top: 1.5rem; max-width: 980px; }
-    .deseg-header     { border-bottom: 2px solid #0D47A1; padding-bottom: .6rem; margin-bottom: 1.2rem; }
-    .deseg-header h1  { font-size: 1.45rem; margin: 0; color: #0D47A1; }
-    .deseg-header p   { margin: 0; color: #546E7A; font-size: .85rem; }
-    .card             { border: 1px solid #e0e0e0; border-radius: 8px; padding: 1rem 1.2rem; }
-    .overall-conforme     { background: #e8f5e9; border-left: 5px solid #2E7D32; }
-    .overall-nao-conforme { background: #ffebee; border-left: 5px solid #C62828; }
-    .overall-text     { font-size: 1.35rem; font-weight: 700; }
-    .text-conforme    { color: #2E7D32; }
-    .text-nao-conforme{ color: #C62828; }
-</style>
-""", unsafe_allow_html=True)
-
-# ── Cabeçalho ─────────────────────────────────────────────────────────────────
-
-st.markdown("""
-<div class="deseg-header">
-  <h1>⚖️ Homologação de Leiloeiros Judiciais</h1>
-  <p>Departamento de Segurança da Informação (DESEG) · SEAUD · GABPRES · TJRJ</p>
+<div class="tjrj-header">
+    <h1>Homologação de Leiloeiros Judiciais</h1>
+    <p>Análise automatizada de conformidade de segurança · Departamento de Segurança da Informação</p>
 </div>
 """, unsafe_allow_html=True)
 
-# ── Formulário ────────────────────────────────────────────────────────────────
 
-col_url, col_file = st.columns([3, 2])
+# ── Form ───────────────────────────────────────────────────────────────────────
+
+col_url, col_file = st.columns([5, 4])
 
 with col_url:
     url_input = st.text_input(
-        "🌐 URL do site do leiloeiro",
+        "URL do site do leiloeiro",
         placeholder="https://www.exemplo.com.br",
     )
 
 with col_file:
     uploaded = st.file_uploader(
-        "📄 Declaração(ões) do leiloeiro",
+        "Declarações do leiloeiro (PDF / DOCX)",
         type=["pdf", "docx"],
         accept_multiple_files=True,
-        help="Um ou mais arquivos PDF/DOCX enviados pelo leiloeiro via SEI",
+        help="Um ou mais arquivos enviados pelo leiloeiro via SEI",
     )
+
+
+# ── Document preview ───────────────────────────────────────────────────────────
+
+if uploaded:
+    pdf_files = [f for f in uploaded if f.name.lower().endswith(".pdf")]
+
+    if pdf_files:
+        label = (
+            f"Pré-visualizar — {pdf_files[0].name}"
+            if len(pdf_files) == 1
+            else f"Pré-visualizar documentos ({len(pdf_files)} PDFs)"
+        )
+        with st.expander(f"📄 {label}", expanded=False):
+            if len(pdf_files) == 1:
+                sel = pdf_files[0]
+            else:
+                sel = st.selectbox(
+                    "Selecionar documento",
+                    options=pdf_files,
+                    format_func=lambda f: f.name,
+                )
+
+            sel.seek(0)
+            _show_pdf_embed(sel.read())
+            sel.seek(0)
+
+
+# ── Trigger ────────────────────────────────────────────────────────────────────
 
 ready = bool(url_input.strip() and uploaded)
 col_btn, col_hint = st.columns([1, 5])
 
 with col_btn:
-    run = st.button("▶  Analisar", type="primary", disabled=not ready, use_container_width=True)
+    run = st.button("Analisar", type="primary", disabled=not ready, use_container_width=True)
 
 with col_hint:
     if not ready:
-        st.caption("Preencha a URL e faça upload da declaração para habilitar a análise.")
+        st.caption("Preencha a URL e carregue a declaração para habilitar a análise.")
     else:
-        st.caption("⏳ A análise leva **aprox. 3 minutos** (varredura SSL Labs + bundles JS).")
+        st.caption("A análise leva aprox. **3 minutos** — SSL Labs pode ser o gargalo.")
 
-st.divider()
 
-# ── Análise ───────────────────────────────────────────────────────────────────
+# ── Analysis ───────────────────────────────────────────────────────────────────
 
 if run and ready:
-    # Salva todos os arquivos carregados em arquivos temporários
     tmp_paths: list[str] = []
     for uf in uploaded:
+        uf.seek(0)
+        data = uf.read()
         suffix = Path(uf.name).suffix.lower()
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-            tmp.write(uf.read())
+            tmp.write(data)
             tmp_paths.append(tmp.name)
+        uf.seek(0)
 
     try:
-        with st.status("🔍 Executando análise completa...", expanded=True) as status_widget:
+        with st.status("Executando análise...", expanded=True) as status_box:
             from modules.m1_parser import parse_document
             from modules.m2_scanner import scan_all
             from modules.m3_engine import evaluate
-            from modules.m4_reporter import generate_ficha
+            from modules.m4_reporter import generate_ficha, generate_pdf
 
-            n_docs = len(tmp_paths)
-            st.write(
-                f"🔄 M1 (parsing de {n_docs} documento(s)) e M2 (varredura web) em paralelo..."
-            )
-            st.write("⏳ Aguardando SSL Labs — pode levar até 3 minutos, por favor aguarde...")
+            n = len(tmp_paths)
+            ai_note = " + Vision AI" if vision_active else ""
+            st.write(f"M1 · Parsing de {n} documento(s){ai_note} e M2 · Varredura web — em paralelo...")
+            st.write("Aguardando SSL Labs (Qualys) — pode levar até 3 minutos...")
 
             with ThreadPoolExecutor(max_workers=2) as ex:
                 fut_m1 = ex.submit(_parse_all_documents, tmp_paths)
@@ -359,41 +440,177 @@ if run and ready:
                 claimed = fut_m1.result()
                 scan    = fut_m2.result()
 
-            st.write(f"✅ M1 — Parsing de {n_docs} documento(s) concluído.")
-            st.write("✅ M2 — Varredura concluída.")
-            st.write("🔄 M3 — Cruzando dados e aplicando regras de conformidade...")
+            st.write(f"✓ M1 concluído ({n} documento(s))")
+            st.write("✓ M2 concluído")
+            st.write("M3 · Cruzando dados e aplicando regras de conformidade...")
 
             domain = _domain_from_url(url_input)
             result = evaluate(claimed, scan, url_input, domain)
+            st.write("✓ M3 concluído")
 
-            st.write("✅ M3 — Análise concluída.")
-            st.write("🔄 M4 — Gerando Ficha de Verificação (.docx)...")
-
+            st.write("M4 · Gerando ficha de verificação (.docx)...")
             out_dir = Path(__file__).parent / "output"
             out_dir.mkdir(exist_ok=True)
             safe_domain = domain.replace(".", "_")
-            out_path = (
-                out_dir / f"ficha_verificacao_{safe_domain}_{date.today().isoformat()}.docx"
-            )
-            ficha_path = generate_ficha(result, out_path)
+            out_path = out_dir / f"ficha_verificacao_{safe_domain}_{date.today().isoformat()}.docx"
+            ficha_path = str(generate_ficha(result, out_path))
+            st.write("✓ M4 concluído (.docx)")
 
-            st.write("✅ M4 — Ficha gerada.")
-            status_widget.update(label="✅ Análise concluída!", state="complete", expanded=False)
+            pdf_out = out_dir / f"ficha_verificacao_{safe_domain}_{date.today().isoformat()}.pdf"
+            st.write("Gerando PDF...")
+            pdf_path = generate_pdf(result, pdf_out)
+            st.write("✓ PDF gerado")
+
+            status_box.update(label="Análise concluída", state="complete", expanded=False)
 
         st.session_state["result"]     = result
         st.session_state["ficha_path"] = ficha_path
+        st.session_state["pdf_path"]   = pdf_path
 
     except Exception as exc:
         st.error(f"Erro durante a análise: {exc}")
         st.exception(exc)
     finally:
         for p in tmp_paths:
-            os.unlink(p)
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
 
-# ── Resultado ─────────────────────────────────────────────────────────────────
+
+# ── Results ────────────────────────────────────────────────────────────────────
 
 if "result" in st.session_state:
-    _display_results(
-        st.session_state["result"],
-        st.session_state["ficha_path"],
-    )
+    rd         = st.session_state["result"]
+    ficha_path = st.session_state["ficha_path"]
+    pdf_path   = st.session_state.get("pdf_path")
+
+    overall   = rd.get("overall_status", "?")
+    domain    = rd.get("domain", "")
+    anal_date = rd.get("analysis_date", date.today().isoformat())
+    conclusao = rd.get("conclusao", "")
+    checks    = rd.get("checks", {})
+    techs     = rd.get("raw", {}).get("technologies", [])
+
+    is_ok     = (overall == "CONFORME")
+    card_cls  = "card-conforme" if is_ok else "card-nao-conforme"
+    txt_cls   = "conforme-text" if is_ok else "nao-conforme-text"
+    icon      = "✅" if is_ok else "❌"
+
+    st.markdown("---")
+
+    # ── Result card + download panel ──────────────────────────────────────────
+
+    col_card, col_dl = st.columns([3, 2])
+
+    with col_card:
+        st.markdown(f"""
+        <div class="card {card_cls}">
+            <div class="result-meta">🌐 {domain} &nbsp;·&nbsp; {anal_date}</div>
+            <div class="result-status {txt_cls}">{icon} {overall}</div>
+            <div class="result-conclusao">{conclusao}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with col_dl:
+        st.markdown("<div style='height:.6rem'></div>", unsafe_allow_html=True)
+        st.markdown("**Baixar ficha**")
+
+        with open(ficha_path, "rb") as fh:
+            st.download_button(
+                label="⬇  Download .docx",
+                data=fh.read(),
+                file_name=Path(ficha_path).name,
+                mime=(
+                    "application/vnd.openxmlformats-officedocument"
+                    ".wordprocessingml.document"
+                ),
+                use_container_width=True,
+            )
+
+        if pdf_path and Path(pdf_path).exists():
+            with open(pdf_path, "rb") as fh:
+                st.download_button(
+                    label="⬇  Download .pdf",
+                    data=fh.read(),
+                    file_name=Path(pdf_path).name,
+                    mime="application/pdf",
+                    use_container_width=True,
+                )
+        else:
+            st.caption("PDF não disponível para esta análise.")
+
+    # ── Ficha preview (if PDF was generated) ─────────────────────────────────
+
+    if pdf_path and Path(pdf_path).exists():
+        with st.expander("📄 Pré-visualizar ficha gerada", expanded=False):
+            with open(pdf_path, "rb") as fh:
+                _show_pdf_embed(fh.read())
+
+    st.markdown("<div style='height:.8rem'></div>", unsafe_allow_html=True)
+
+    # ── Tabs ─────────────────────────────────────────────────────────────────
+
+    tab_chk, tab_tec, tab_raw = st.tabs(["Verificações", "Tecnologias detectadas", "Dados brutos"])
+
+    with tab_chk:
+        rows = _flatten_checks(checks)
+        if rows:
+            df_chk = pd.DataFrame([
+                {
+                    "Seção":      r["label"],
+                    "Status":     f"{_STATUS_ICON.get(r['status'], '?')} {r['status']}",
+                    "Severidade": r["severity"] or "—",
+                    "Detalhe":    r["detail"],
+                }
+                for r in rows
+            ])
+            st.dataframe(
+                df_chk.style.apply(_color_status_row, axis=1),
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "Seção":      st.column_config.TextColumn(width="medium"),
+                    "Status":     st.column_config.TextColumn(width="medium"),
+                    "Severidade": st.column_config.TextColumn(width="small"),
+                    "Detalhe":    st.column_config.TextColumn(width="large"),
+                },
+            )
+        else:
+            st.info("Nenhuma verificação disponível.")
+
+    with tab_tec:
+        if techs:
+            df_tec = pd.DataFrame([
+                {
+                    "Categoria":  t.get("category", ""),
+                    "Tecnologia": t.get("name", ""),
+                    "Versão":     t.get("version") or "—",
+                    "EOL":        _eol_label(t),
+                }
+                for t in sorted(techs, key=lambda x: (x.get("category", ""), x.get("name", "")))
+            ])
+            st.dataframe(
+                df_tec.style.apply(_color_eol_row, axis=1),
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "Categoria":  st.column_config.TextColumn(width="medium"),
+                    "Tecnologia": st.column_config.TextColumn(width="medium"),
+                    "Versão":     st.column_config.TextColumn(width="small"),
+                    "EOL":        st.column_config.TextColumn(width="small"),
+                },
+            )
+        else:
+            st.info("Nenhuma tecnologia detectada.")
+
+    with tab_raw:
+        raw = rd.get("raw", {})
+        t_whois, t_hdrs, t_ssl = st.tabs(["WHOIS", "Cabeçalhos HTTP", "SSL Labs"])
+        with t_whois:
+            st.code(raw.get("whois_raw", "Não disponível"), language=None)
+        with t_hdrs:
+            st.code(raw.get("headers_raw_block", "Não disponível"), language=None)
+        with t_ssl:
+            ssl = raw.get("ssl_labs", {})
+            st.json({k: v for k, v in ssl.items() if k != "raw_endpoints"})
