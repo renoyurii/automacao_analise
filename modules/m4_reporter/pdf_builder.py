@@ -63,8 +63,8 @@ _STATUS_FG = {
 }
 
 _TABLE_HDR = FontFace(emphasis="BOLD", color=_WHITE, fill_color=_BLUE_MID)
-_TABLE_BODY_FILL = (142, 142, 140)
-_TABLE_ALT_FILL = (165, 165, 163)
+_TABLE_BODY_FILL = (255, 255, 255)
+_TABLE_ALT_FILL = (240, 243, 247)
 
 _TLS_ROWS = [
     ("TLS 1.3", "TLS 1.3"),

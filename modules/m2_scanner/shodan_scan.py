@@ -80,6 +80,9 @@ def _scan_shodan(ip: str | None) -> dict[str, Any]:
         return _error_result(None, "IP não resolvido para consulta Shodan")
     try:
         import shodan
+    except ImportError:
+        return _error_result(ip, "No module named 'shodan'")
+    try:
         api = shodan.Shodan(SHODAN_API_KEY)
         host = api.host(ip)
         open_ports = sorted(set(host.get("ports", [])))

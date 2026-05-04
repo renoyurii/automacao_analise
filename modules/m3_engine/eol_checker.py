@@ -11,6 +11,7 @@ sob o suporte de segurança do fornecedor do software. Utilizar: End Of Life."
 from __future__ import annotations
 
 import re
+import time
 from datetime import date
 from typing import Any
 
@@ -18,6 +19,11 @@ import requests
 
 _BASE = "https://endoflife.date/api"
 _TIMEOUT = 10
+
+# Cache em memória — evita requisições repetidas na mesma sessão Streamlit.
+# TTL de 1h é suficiente: dados de EOL mudam no máximo semanalmente.
+_CACHE: dict[str, tuple[float, dict]] = {}
+_CACHE_TTL = 3600  # 1 hora
 
 
 # ── Extratores de versão (definidos antes do mapa que os referencia) ──────────
@@ -154,24 +160,34 @@ def _lookup(name: str, version: str | None) -> dict:
 
 
 def _query_api(product: str, cycle: str) -> dict:
+    cache_key = f"{product}/{cycle}"
+
+    # Verifica cache em memória
+    if cache_key in _CACHE:
+        ts, cached_result = _CACHE[cache_key]
+        if time.time() - ts < _CACHE_TTL:
+            return cached_result
+
     url = f"{_BASE}/{product}/{cycle}.json"
     try:
         resp = requests.get(url, timeout=_TIMEOUT)
         if resp.status_code == 404:
-            return {"eol": None, "eol_date": None, "checked": True}
+            result = {"eol": None, "eol_date": None, "checked": True}
+            _CACHE[cache_key] = (time.time(), result)
+            return result
         resp.raise_for_status()
         data = resp.json()
 
         eol_raw = data.get("eol")
         if eol_raw is False:
-            return {"eol": False, "eol_date": None, "checked": True}
-        if isinstance(eol_raw, str):
-            # É uma data — verifica se já passou
-            eol_date = eol_raw
-            is_eol = _date_passed(eol_raw)
-            return {"eol": is_eol, "eol_date": eol_date, "checked": True}
+            result = {"eol": False, "eol_date": None, "checked": True}
+        elif isinstance(eol_raw, str):
+            result = {"eol": _date_passed(eol_raw), "eol_date": eol_raw, "checked": True}
+        else:
+            result = {"eol": None, "eol_date": None, "checked": True}
 
-        return {"eol": None, "eol_date": None, "checked": True}
+        _CACHE[cache_key] = (time.time(), result)
+        return result
 
     except Exception:
         return {"eol": None, "eol_date": None, "checked": False}

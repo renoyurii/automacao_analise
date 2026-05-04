@@ -6,6 +6,8 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).parent / ".env", override=True)
 
 # ── APIs externas ─────────────────────────────────────────────────────────────
+# Nota: load_dotenv com override=True garante que os valores do .env prevalecem
+# sobre variáveis de ambiente vazias herdadas da shell.
 SHODAN_API_KEY: str     = os.getenv("SHODAN_API_KEY", "")
 ANTHROPIC_API_KEY: str  = os.getenv("ANTHROPIC_API_KEY", "")
 

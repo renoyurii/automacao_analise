@@ -81,8 +81,9 @@ def extract_text_from_image_pages(
                     continue
 
                 try:
+                    _vision_model = os.environ.get("M1_LLM_MODEL", "").strip() or "claude-haiku-4-5-20251001"
                     msg = client.messages.create(
-                        model="claude-haiku-4-5-20251001",
+                        model=_vision_model,
                         max_tokens=600,
                         messages=[
                             {

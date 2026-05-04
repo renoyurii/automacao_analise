@@ -86,10 +86,29 @@ def scan_ssl_labs(domain: str) -> dict[str, Any]:
 # ── Polling loop ─────────────────────────────────────────────────────────────
 
 def _fetch_analysis(domain: str) -> dict:
-    """Inicia análise e faz polling até status READY ou timeout."""
+    """Tenta usar cache recente; se indisponível, inicia análise nova e faz polling."""
+    # Tenta cache primeiro (economiza quota diária de 25 análises/IP)
+    params_cache = {
+        "host":       domain,
+        "publish":    "off",
+        "fromCache":  "on",
+        "maxAge":     24,        # aceita cache de até 24h
+        "all":        "done",
+    }
+    try:
+        resp = requests.get(f"{_BASE}/analyze", params=params_cache, timeout=_TIMEOUT)
+        resp.raise_for_status()
+        data = resp.json()
+        if data.get("status") == "READY":
+            print(f"  {Fore.GREEN}[SSL Labs] Usando resultado em cache.{Style.RESET_ALL}")
+            return data
+    except Exception:
+        pass
+
+    # Cache indisponível — inicia nova análise
     params_start = {
         "host":      domain,
-        "publish":   "off",   # NUNCA publicar — dados de auditoria interna
+        "publish":   "off",
         "startNew":  "on",
         "all":       "done",
     }
@@ -125,9 +144,14 @@ def _fetch_analysis(domain: str) -> dict:
         resp.raise_for_status()
         data = resp.json()
 
-    print(
-        f"  {Fore.GREEN}[SSL Labs] Análise concluída ({elapsed}s).          {Style.RESET_ALL}"
-    )
+    if data.get("status") == "READY":
+        print(
+            f"  {Fore.GREEN}[SSL Labs] Análise concluída ({elapsed}s).          {Style.RESET_ALL}"
+        )
+    else:
+        print(
+            f"  {Fore.RED}[SSL Labs] Finalizado com erro ({elapsed}s).          {Style.RESET_ALL}"
+        )
     return data
 
 
