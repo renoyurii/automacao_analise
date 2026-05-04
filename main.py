@@ -24,7 +24,7 @@ colorama_init(autoreset=True)
 from modules.m1_parser import parse_document
 from modules.m2_scanner import scan_all
 from modules.m3_engine import evaluate
-from modules.m4_reporter import generate_ficha
+from modules.m4_reporter import generate_ficha, generate_pdf
 
 
 def main() -> None:
@@ -75,7 +75,14 @@ def main() -> None:
     print(f"\n{Fore.CYAN}[→] M4: Gerando Ficha de Verificação...{Style.RESET_ALL}")
     output_path = _build_output_path(domain)
     ficha_path  = generate_ficha(result_data, output_path)
-    print(f"{Fore.GREEN}[✓] Ficha gerada: {ficha_path}{Style.RESET_ALL}\n")
+    print(f"{Fore.GREEN}[✓] DOCX: {ficha_path}{Style.RESET_ALL}")
+
+    pdf_path = Path(str(output_path).replace(".docx", ".pdf"))
+    try:
+        generate_pdf(result_data, pdf_path)
+        print(f"{Fore.GREEN}[✓] PDF:  {pdf_path}{Style.RESET_ALL}\n")
+    except Exception as e:
+        print(f"{Fore.YELLOW}[!] PDF não gerado: {e}{Style.RESET_ALL}\n")
 
 
 # ── Apresentação dos resultados ───────────────────────────────────────────────
