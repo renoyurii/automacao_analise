@@ -15,7 +15,11 @@ from typing import Any, Iterable
 from fpdf import FPDF, FontFace, XPos, YPos
 from fpdf.enums import TableBordersLayout, TableCellFillMode
 
-from config import REPORT_FOOTER, REPORT_HEADER_LINE1, REPORT_HEADER_LINE2
+from config import (
+    REPORT_FOOTER, REPORT_HEADER_LINE1, REPORT_HEADER_LINE2,
+    REPORT_PDF_BOX_LABEL, REPORT_PDF_LINE1, REPORT_PDF_LINE2,
+    REPORT_PDF_LINE3, REPORT_PDF_WATERMARK,
+)
 
 # ── Sanitização de texto para Latin-1 ────────────────────────────────────────
 
@@ -96,21 +100,21 @@ class _FichaPDF(FPDF):
         self.set_xy(18, 10)
         self.set_font("Helvetica", "B", 7)
         self.set_text_color(*_BLUE)
-        self.cell(10, 4, "SI", align="C")
+        self.cell(10, 4, REPORT_PDF_BOX_LABEL, align="C")
 
         self.set_xy(31, 8.5)
         self.set_font("Helvetica", "", 8)
         self.set_text_color(100, 100, 100)
-        self.cell(90, 4, "Análise de Segurança da Informação", new_y=YPos.NEXT)
+        self.cell(90, 4, REPORT_PDF_LINE1, new_y=YPos.NEXT)
         self.set_x(31)
-        self.cell(90, 4, "Homologação — Ficha de Verificação", new_y=YPos.NEXT)
+        self.cell(90, 4, REPORT_PDF_LINE2, new_y=YPos.NEXT)
         self.set_x(31)
-        self.cell(90, 4, "Departamento de Segurança da Informação")
+        self.cell(90, 4, REPORT_PDF_LINE3)
 
         self.set_xy(158, 9)
         self.set_font("Helvetica", "B", 16)
         self.set_text_color(195, 195, 195)
-        self.cell(34, 8, "SI", align="R")
+        self.cell(34, 8, REPORT_PDF_WATERMARK, align="R")
         self.set_text_color(*_TEXT)
         self.set_y(28)
 

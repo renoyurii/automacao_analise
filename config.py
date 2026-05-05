@@ -51,3 +51,10 @@ REPORT_FOOTER = os.getenv(
     "REPORT_FOOTER",
     "Departamento de Segurança da Informação",
 )
+
+# ── Cabeçalho do PDF (caixa + linhas superiores) ────────────────────────────
+REPORT_PDF_BOX_LABEL = os.getenv("REPORT_PDF_BOX_LABEL", "SI")
+REPORT_PDF_LINE1 = os.getenv("REPORT_PDF_LINE1", "Análise de Segurança da Informação")
+REPORT_PDF_LINE2 = os.getenv("REPORT_PDF_LINE2", "Ficha de Verificação")
+REPORT_PDF_LINE3 = os.getenv("REPORT_PDF_LINE3", "Departamento de Segurança da Informação")
+REPORT_PDF_WATERMARK = os.getenv("REPORT_PDF_WATERMARK", "SI")
