@@ -219,10 +219,10 @@ def _show_pdf_embed(pdf_bytes: bytes) -> None:
     """Embed PDF viewer using base64 iframe."""
     mb = len(pdf_bytes) / (1024 * 1024)
 
-    if mb > 2:
+    if mb > 6:
         st.info(
             f"📄 PDF com {mb:.1f} MB — pré-visualização indisponível para "
-            f"arquivos acima de 2 MB. Use o botão de download."
+            f"arquivos acima de 6 MB. Use o botão de download."
         )
         return
 
