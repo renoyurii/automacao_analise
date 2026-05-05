@@ -218,8 +218,13 @@ def _color_eol_row(row: pd.Series) -> list[str]:
 def _show_pdf_embed(pdf_bytes: bytes) -> None:
     """Embed PDF viewer using base64 iframe."""
     mb = len(pdf_bytes) / (1024 * 1024)
-    if mb > 30:
-        st.warning(f"Arquivo grande ({mb:.0f} MB) — pré-visualização pode ser lenta.")
+
+    if mb > 2:
+        st.info(
+            f"📄 PDF com {mb:.1f} MB — pré-visualização indisponível para "
+            f"arquivos acima de 2 MB. Use o botão de download."
+        )
+        return
 
     b64 = base64.b64encode(pdf_bytes).decode()
     st.markdown(
