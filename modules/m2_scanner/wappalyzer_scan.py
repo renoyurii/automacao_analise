@@ -305,6 +305,40 @@ def _fetch_page(url: str) -> tuple[str | None, dict, dict, str]:
     return html, dict(resp.headers), dict(resp.cookies), str(resp.url)
 
 
+_SERVER_NAME_MAP: dict[str, str] = {
+    "microsoft-iis": "Microsoft IIS",
+    "apache": "Apache",
+    "nginx": "Nginx",
+    "litespeed": "LiteSpeed",
+    "openresty": "OpenResty",
+    "caddy": "Caddy",
+    "gunicorn": "Gunicorn",
+    "uvicorn": "Uvicorn",
+    "cowboy": "Cowboy",
+    "kestrel": "Kestrel",
+    "tomcat": "Apache Tomcat",
+    "jetty": "Eclipse Jetty",
+    "tengine": "Tengine",
+    "envoy": "Envoy",
+    "cloudflare": "cloudflare",
+}
+
+_POWERED_BY_MAP: dict[str, tuple[str, str]] = {
+    r"asp\.net": ("Servidor Web", "ASP.NET"),
+    r"php": ("Linguagem de Programação", "PHP"),
+    r"express": ("Framework Web", "Express"),
+    r"next\.js": ("Framework JavaScript", "Next.js"),
+    r"nuxt": ("Framework JavaScript", "Nuxt.js"),
+    r"flask": ("Framework Web", "Flask"),
+    r"django": ("Framework Web", "Django"),
+    r"ruby": ("Linguagem de Programação", "Ruby"),
+    r"perl": ("Linguagem de Programação", "Perl"),
+    r"servlet": ("Framework Web", "Java Servlet"),
+    r"plesk": ("Painel de Controle", "Plesk"),
+    r"cpanel": ("Painel de Controle", "cPanel"),
+}
+
+
 def _detect_from_headers(
     headers: dict[str, str],
     add: Any,
@@ -312,6 +346,12 @@ def _detect_from_headers(
     for header_key, (category, fixed_name) in _HEADER_SIGNATURES.items():
         value = headers.get(header_key)
         if value is None:
+            continue
+        if header_key == "server":
+            _parse_server_header(value, add)
+            continue
+        if header_key == "x-powered-by":
+            _parse_powered_by(value, add)
             continue
         name = fixed_name if fixed_name else value.split("/")[0].strip()
         version = None
@@ -333,6 +373,48 @@ def _detect_from_headers(
         add("CDN", "Fastly")
     elif "varnish" in x_cache:
         add("Cache", "Varnish")
+
+
+def _parse_server_header(value: str, add: Any) -> None:
+    parts = re.split(r"\s+", value.strip())
+    for part in parts:
+        if "/" in part:
+            raw_name, version = part.split("/", 1)
+        else:
+            raw_name, version = part, None
+        display = _SERVER_NAME_MAP.get(raw_name.lower(), raw_name)
+        if display and display.lower() != "cloudflare":
+            add("Servidor Web", display, version)
+
+
+def _parse_powered_by(value: str, add: Any) -> None:
+    for token in re.split(r"[,;]\s*", value):
+        token = token.strip()
+        if not token:
+            continue
+        matched = False
+        for pattern, (category, name) in _POWERED_BY_MAP.items():
+            m = re.search(pattern, token, re.IGNORECASE)
+            if m:
+                version = None
+                vm = re.search(r"(\d+\.\d+(?:\.\d+)*)", token)
+                if vm:
+                    version = vm.group(1)
+                add(category, name, version)
+                matched = True
+                break
+        if not matched:
+            version = None
+            if "/" in token:
+                name_part, version = token.split("/", 1)
+            else:
+                name_part = token
+                vm = re.search(r"(\d+\.\d+(?:\.\d+)*)", token)
+                if vm:
+                    version = vm.group(1)
+                    name_part = token[:vm.start()].strip()
+            if name_part:
+                add("Servidor Web", name_part.strip(), version)
 
 
 def _detect_from_cookies(cookies: dict[str, str], add: Any) -> None:
@@ -376,6 +458,12 @@ def _detect_from_html(html: str, add: Any) -> list[str]:
                 val = m.group(1) if version_group == r"\1" else None
                 if val:
                     add(category, val)
+
+    # Versões via URLs de CDN (ex: /libs/jquery/3.7.1/jquery.min.js)
+    _detect_versions_from_urls(src_texts, add)
+
+    # Linguagem backend por extensão de links internos
+    _detect_backend_language(html, add)
 
     # Vue.js — atributos de estilo com escopo (data-v-XXXXXXXX) indicam Vue 2/3
     if re.search(r'\bdata-v-[a-f0-9]{6,8}\b', html):
@@ -426,10 +514,73 @@ def _detect_from_html(html: str, add: Any) -> list[str]:
 
 # ── Detecção em bundles JS locais ─────────────────────────────────────────────
 
-_BUNDLE_CDN_EXCLUDE = re.compile(
-    r"googleapis|jquery\.com|cloudflareinsights|fontawesome|maxcdn|gstatic|ga\.js",
-    re.IGNORECASE,
-)
+# ── Detecção de versões por URL de CDN ────────────────────────────────────────
+
+_CDN_VERSION_PATTERNS: list[tuple[str, str, str]] = [
+    # (regex no path/URL, categoria, nome)
+    (r"jquery(?:\.min)?\.js.*?(?:^|/)(\d+\.\d+\.\d+)/|jquery[.\-](\d+\.\d+\.\d+)", "Biblioteca JavaScript", "jQuery"),
+    (r"jquery[\.\-]ui[/.\-](\d+\.\d+\.\d+)", "Biblioteca JavaScript", "jQuery UI"),
+    (r"bootstrap[/.\-](\d+\.\d+\.\d+)", "UI Frameworks", "Bootstrap"),
+    (r"vue@(\d+\.\d+\.\d+)|vue[/.\-](\d+\.\d+\.\d+)", "Framework JavaScript", "Vue.js"),
+    (r"react@(\d+\.\d+\.\d+)|react[/.\-](\d+\.\d+\.\d+)", "Framework JavaScript", "React"),
+    (r"angular[/.\-](\d+\.\d+\.\d+)", "Framework JavaScript", "Angular"),
+    (r"moment[/.\-](\d+\.\d+\.\d+)", "Biblioteca JavaScript", "Moment.js"),
+    (r"lodash[/.\-](\d+\.\d+\.\d+)", "Biblioteca JavaScript", "Lodash"),
+    (r"axios[/.\-](\d+\.\d+\.\d+)", "Biblioteca JavaScript", "Axios"),
+    (r"swiper[/.\-](\d+\.\d+\.\d+)", "Biblioteca JavaScript", "Swiper"),
+    (r"chart\.js[/.\-](\d+\.\d+\.\d+)", "Visualização de Dados", "Chart.js"),
+    (r"d3[/.\-]v?(\d+\.\d+\.\d+)", "Visualização de Dados", "D3.js"),
+    (r"leaflet[/.\-](\d+\.\d+\.\d+)", "Mapa", "Leaflet"),
+    (r"popper\.js[/.\-](\d+\.\d+\.\d+)|@popperjs/core@(\d+\.\d+\.\d+)", "Biblioteca JavaScript", "Popper.js"),
+    (r"slick[/.\-](\d+\.\d+\.\d+)", "Biblioteca JavaScript", "Slick"),
+    (r"select2[/.\-](\d+\.\d+\.\d+)", "Biblioteca JavaScript", "Select2"),
+    (r"datatables[/.\-](\d+\.\d+\.\d+)", "Biblioteca JavaScript", "DataTables"),
+    (r"font-awesome[/.\-](\d+\.\d+\.\d+)", "Script de Fonte", "Font Awesome"),
+    (r"sweetalert2?[/.\-@](\d+\.\d+\.\d+)", "Biblioteca JavaScript", "SweetAlert2"),
+    (r"toastr[/.\-](\d+\.\d+\.\d+)", "Biblioteca JavaScript", "Toastr"),
+    (r"animate\.css[/.\-](\d+\.\d+\.\d+)", "UI Frameworks", "Animate.css"),
+    (r"owl\.?carousel[/.\-](\d+\.\d+\.\d+)", "Biblioteca JavaScript", "Owl Carousel"),
+    (r"magnific-popup[/.\-](\d+\.\d+\.\d+)", "Biblioteca JavaScript", "Magnific Popup"),
+    (r"lightbox[/.\-](\d+\.\d+\.\d+)", "Biblioteca JavaScript", "Lightbox"),
+    (r"gsap[/.\-](\d+\.\d+\.\d+)", "Biblioteca JavaScript", "GSAP"),
+    (r"three\.js[/.\-](\d+\.\d+\.\d+)|three@(\d+\.\d+\.\d+)", "Biblioteca JavaScript", "Three.js"),
+    (r"tinymce[/.\-](\d+\.\d+\.\d+)", "Editor", "TinyMCE"),
+    (r"ckeditor[/.\-](\d+\.\d+\.\d+)", "Editor", "CKEditor"),
+]
+
+
+def _detect_versions_from_urls(src_texts: list[str], add: Any) -> None:
+    combined = " ".join(src_texts)
+    for pattern, category, name in _CDN_VERSION_PATTERNS:
+        m = re.search(pattern, combined, re.IGNORECASE)
+        if m:
+            version = m.group(1) or (m.group(2) if m.lastindex and m.lastindex >= 2 else None)
+            add(category, name, version)
+
+
+def _detect_backend_language(html: str, add: Any) -> None:
+    links = re.findall(r'(?:href|action|src)=["\']([^"\']+)', html, re.IGNORECASE)
+    ext_counts: dict[str, int] = {}
+    for link in links:
+        path = urlparse(link).path.lower()
+        if path.endswith(".php"):
+            ext_counts["php"] = ext_counts.get("php", 0) + 1
+        elif path.endswith(".asp") or path.endswith(".aspx"):
+            ext_counts["asp"] = ext_counts.get("asp", 0) + 1
+        elif path.endswith(".jsp"):
+            ext_counts["jsp"] = ext_counts.get("jsp", 0) + 1
+        elif path.endswith(".py"):
+            ext_counts["python"] = ext_counts.get("python", 0) + 1
+
+    if ext_counts.get("php", 0) >= 1:
+        add("Linguagem de Programação", "PHP")
+    if ext_counts.get("asp", 0) >= 1:
+        add("Servidor Web", "ASP.NET")
+    if ext_counts.get("jsp", 0) >= 1:
+        add("Framework Web", "Java Servlet")
+
+
+# ── Detecção em bundles JS ────────────────────────────────────────────────────
 
 _BUNDLE_SIGNATURES: list[tuple[str, str, str]] = [
     (r"Vue\.js\s+v(\d+\.\d+\.\d+)",              "Framework JavaScript", "Vue.js"),
@@ -443,6 +594,27 @@ _BUNDLE_SIGNATURES: list[tuple[str, str, str]] = [
     (r"angular[/ ]v?(\d+\.\d+\.\d+)",            "Framework JavaScript", "Angular"),
     (r"svelte[/ ]v?(\d+\.\d+\.\d+)|\"svelte\":\s*\"(\d+\.\d+\.\d+)\"", "Framework JavaScript", "Svelte"),
     (r"axios[/ ]v?(\d+\.\d+\.\d+)|\"axios\":\s*\"(\d+\.\d+\.\d+)\"",   "Biblioteca JavaScript", "Axios"),
+    # Bootstrap — comentário de versão em bundle (ex: /*! Bootstrap v5.3.2 */)
+    (r"Bootstrap\s+v(\d+\.\d+\.\d+)",            "UI Frameworks", "Bootstrap"),
+    # Popper.js
+    (r"Popper\.js\s+v?(\d+\.\d+\.\d+)|@popperjs/core@(\d+\.\d+\.\d+)", "Biblioteca JavaScript", "Popper.js"),
+    # Moment.js
+    (r"moment\.js\s+v?(\d+\.\d+\.\d+)|\"moment\":\s*\"(\d+\.\d+\.\d+)\"", "Biblioteca JavaScript", "Moment.js"),
+    # Lodash
+    (r"lodash[/ ]v?(\d+\.\d+\.\d+)|\"lodash\":\s*\"(\d+\.\d+\.\d+)\"", "Biblioteca JavaScript", "Lodash"),
+    # jQuery — comentário de versão em bundle
+    (r"jQuery\s+(?:JavaScript Library\s+)?v(\d+\.\d+\.\d+)", "Biblioteca JavaScript", "jQuery"),
+    (r"jQuery\s+v(\d+\.\d+\.\d+)",               "Biblioteca JavaScript", "jQuery"),
+    # jQuery UI
+    (r"jQuery\s+UI\s+[\-\s]*v?(\d+\.\d+\.\d+)",  "Biblioteca JavaScript", "jQuery UI"),
+    # jQuery Migrate
+    (r"jQuery\s+Migrate\s+[\-\s]*v?(\d+\.\d+\.\d+)", "Biblioteca JavaScript", "jQuery Migrate"),
+    # Slick
+    (r"slick\s+[\-\s]*v?(\d+\.\d+\.\d+)",        "Biblioteca JavaScript", "Slick"),
+    # Swiper
+    (r"Swiper\s+v?(\d+\.\d+\.\d+)",              "Biblioteca JavaScript", "Swiper"),
+    # DataTables
+    (r"DataTables\s+(\d+\.\d+\.\d+)",            "Biblioteca JavaScript", "DataTables"),
 ]
 
 _BUNDLE_MARKERS: list[tuple[str, str, str]] = [
@@ -450,21 +622,37 @@ _BUNDLE_MARKERS: list[tuple[str, str, str]] = [
     (r"\bReact\b.*createElement|createElement.*\bReact\b", "Framework JavaScript", "React"),
 ]
 
-_BUNDLE_MAX_BYTES = 600_000   # 600 KB por bundle
-_BUNDLE_MAX_FETCH = 4         # máximo de bundles a buscar
+_BUNDLE_MAX_BYTES = 1_500_000  # 1.5 MB por bundle
+_BUNDLE_MAX_FETCH = 10         # máximo de bundles a buscar
 
 
 def _detect_from_bundles(src_texts: list[str], base_url: str, add: Any) -> None:
-    """Busca versões de frameworks e marcadores em bundles JS locais."""
-    local_js = [
-        s for s in src_texts
-        if s.endswith(".js")
-        and not _BUNDLE_CDN_EXCLUDE.search(s)
-        and (s.startswith("/") or not s.startswith("http"))
-    ][:_BUNDLE_MAX_FETCH]
+    """Busca versões em todos os JS referenciados (locais e CDN)."""
+    js_urls: list[str] = []
+    for s in src_texts:
+        if not s:
+            continue
+        lower = s.lower()
+        if not (lower.endswith(".js") or ".js?" in lower or ".js#" in lower):
+            continue
+        # Ignora tracking/analytics (não contêm tech útil)
+        if re.search(r"googletagmanager|google-analytics|cloudflareinsights|"
+                     r"hotjar|fbevents|sentry-cdn|connect\.facebook", s, re.I):
+            continue
+        js_urls.append(s)
 
-    for src in local_js:
-        url = urljoin(base_url, src)
+    # Prioriza bundles maiores (app/chunk/vendor) que tendem a ter mais assinaturas
+    priority = []
+    normal = []
+    for s in js_urls:
+        if re.search(r"app\.|chunk\.|vendor\.|bundle\.|main\.|runtime\.", s, re.I):
+            priority.append(s)
+        else:
+            normal.append(s)
+    ordered = (priority + normal)[:_BUNDLE_MAX_FETCH]
+
+    for src in ordered:
+        url = urljoin(base_url, src) if not src.startswith("http") else src
         try:
             resp = requests.get(url, headers={"User-Agent": _UA}, timeout=8, stream=True)
             if not resp.ok:
@@ -481,7 +669,8 @@ def _detect_from_bundles(src_texts: list[str], base_url: str, add: Any) -> None:
         for pattern, category, name in _BUNDLE_SIGNATURES:
             m = re.search(pattern, text, re.IGNORECASE)
             if m:
-                add(category, name, m.group(1))
+                version = m.group(1) or (m.group(2) if m.lastindex and m.lastindex >= 2 else None)
+                add(category, name, version)
 
         for pattern, category, name in _BUNDLE_MARKERS:
             if re.search(pattern, text, re.IGNORECASE):

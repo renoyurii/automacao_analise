@@ -37,7 +37,10 @@
       "Bash(python3 -m pytest tests/ -q --no-header)",
       "Bash(pkill -f \"streamlit\")",
       "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:8501)",
-      "Bash(python3 -c \"import ast; ast.parse\\(open\\('app_ui.py'\\).read\\(\\)\\); ast.parse\\(open\\('main.py'\\).read\\(\\)\\); ast.parse\\(open\\('config.py'\\).read\\(\\)\\); ast.parse\\(open\\('modules/m1_parser/__init__.py'\\).read\\(\\)\\); ast.parse\\(open\\('modules/m1_parser/llm_extractor.py'\\).read\\(\\)\\); ast.parse\\(open\\('modules/m1_parser/claim_extractor.py'\\).read\\(\\)\\); ast.parse\\(open\\('modules/m3_engine/comparator.py'\\).read\\(\\)\\); ast.parse\\(open\\('modules/m4_reporter/ficha_builder.py'\\).read\\(\\)\\); ast.parse\\(open\\('modules/m4_reporter/pdf_builder.py'\\).read\\(\\)\\); ast.parse\\(open\\('tests/test_m1_parser.py'\\).read\\(\\)\\); ast.parse\\(open\\('tests/test_m3_engine.py'\\).read\\(\\)\\); print\\('All files parse OK'\\)\")"
+      "Bash(python3 -c \"import ast; ast.parse\\(open\\('app_ui.py'\\).read\\(\\)\\); ast.parse\\(open\\('main.py'\\).read\\(\\)\\); ast.parse\\(open\\('config.py'\\).read\\(\\)\\); ast.parse\\(open\\('modules/m1_parser/__init__.py'\\).read\\(\\)\\); ast.parse\\(open\\('modules/m1_parser/llm_extractor.py'\\).read\\(\\)\\); ast.parse\\(open\\('modules/m1_parser/claim_extractor.py'\\).read\\(\\)\\); ast.parse\\(open\\('modules/m3_engine/comparator.py'\\).read\\(\\)\\); ast.parse\\(open\\('modules/m4_reporter/ficha_builder.py'\\).read\\(\\)\\); ast.parse\\(open\\('modules/m4_reporter/pdf_builder.py'\\).read\\(\\)\\); ast.parse\\(open\\('tests/test_m1_parser.py'\\).read\\(\\)\\); ast.parse\\(open\\('tests/test_m3_engine.py'\\).read\\(\\)\\); print\\('All files parse OK'\\)\")",
+      "Bash(rtk curl *)",
+      "Bash(gh api *)",
+      "Bash(rtk du *)"
     ]
   }
 }
