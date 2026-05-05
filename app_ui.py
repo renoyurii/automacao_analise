@@ -409,9 +409,14 @@ with col_hint:
         st.caption("A análise leva aprox. **3 minutos** — SSL Labs pode ser o gargalo.")
 
 
-# ── Analysis ───────────────────────────────────────────────────────────────────
+# ── Phase 1: M1 + M2 (extraction & scan) ──────────────────────────────────────
 
 if run and ready:
+    # Limpa estado anterior
+    for k in ("result", "ficha_path", "pdf_path", "m1_claimed", "m2_scan",
+              "url_used", "domain_used", "approval_done"):
+        st.session_state.pop(k, None)
+
     tmp_paths: list[str] = []
     for uf in uploaded:
         uf.seek(0)
@@ -423,11 +428,9 @@ if run and ready:
         uf.seek(0)
 
     try:
-        with st.status("Executando análise...", expanded=True) as status_box:
+        with st.status("Executando extração e varredura...", expanded=True) as status_box:
             from modules.m1_parser import parse_document
             from modules.m2_scanner import scan_all
-            from modules.m3_engine import evaluate
-            from modules.m4_reporter import generate_ficha, generate_pdf
 
             n = len(tmp_paths)
             ai_note = " + Vision AI" if vision_active else ""
@@ -442,33 +445,19 @@ if run and ready:
 
             st.write(f"✓ M1 concluído ({n} documento(s))")
             st.write("✓ M2 concluído")
-            st.write("M3 · Cruzando dados e aplicando regras de conformidade...")
+            status_box.update(
+                label="Extração concluída — aguardando aprovação",
+                state="complete", expanded=False,
+            )
 
-            domain = _domain_from_url(url_input)
-            result = evaluate(claimed, scan, url_input, domain)
-            st.write("✓ M3 concluído")
-
-            st.write("M4 · Gerando ficha de verificação (.docx)...")
-            out_dir = Path(__file__).parent / "output"
-            out_dir.mkdir(exist_ok=True)
-            safe_domain = domain.replace(".", "_")
-            out_path = out_dir / f"ficha_verificacao_{safe_domain}_{date.today().isoformat()}.docx"
-            ficha_path = str(generate_ficha(result, out_path))
-            st.write("✓ M4 concluído (.docx)")
-
-            pdf_out = out_dir / f"ficha_verificacao_{safe_domain}_{date.today().isoformat()}.pdf"
-            st.write("Gerando PDF...")
-            pdf_path = generate_pdf(result, pdf_out)
-            st.write("✓ PDF gerado")
-
-            status_box.update(label="Análise concluída", state="complete", expanded=False)
-
-        st.session_state["result"]     = result
-        st.session_state["ficha_path"] = ficha_path
-        st.session_state["pdf_path"]   = pdf_path
+        # Persiste para Phase 2
+        st.session_state["m1_claimed"]  = claimed
+        st.session_state["m2_scan"]     = scan
+        st.session_state["url_used"]    = url_input
+        st.session_state["domain_used"] = _domain_from_url(url_input)
 
     except Exception as exc:
-        st.error(f"Erro durante a análise: {exc}")
+        st.error(f"Erro durante a extração: {exc}")
         st.exception(exc)
     finally:
         for p in tmp_paths:
@@ -476,6 +465,185 @@ if run and ready:
                 os.unlink(p)
             except OSError:
                 pass
+
+
+# ── Approval Gate: mostra evidências e permite aprovar/rejeitar ────────────────
+
+if "m1_claimed" in st.session_state and "result" not in st.session_state:
+    claimed = st.session_state["m1_claimed"]
+    ev_verification = claimed.get("evidence_verification", {})
+    llm_ev = claimed.get("llm_evidence", {})
+
+    st.markdown("---")
+    st.markdown(
+        "<div style='background:#FFF8E1;border:1px solid #FFE082;border-radius:10px;"
+        "padding:1.2rem 1.5rem;margin-bottom:1rem;'>"
+        "<strong style='font-size:1rem;color:#F57F17;'>Revisão de Evidências</strong>"
+        "<p style='font-size:.85rem;color:#5D4037;margin:.4rem 0 0;'>"
+        "O sistema extraiu as seguintes evidências do documento. "
+        "Revise cada item e desmarque o que estiver incorreto antes de gerar o relatório.</p>"
+        "</div>",
+        unsafe_allow_html=True,
+    )
+
+    _ev_labels = {
+        "hsts": ("HSTS", "hsts_claimed"),
+        "ssl_cert": ("Certificado SSL/TLS", "ssl_cert_claimed"),
+        "backup": ("Backup e Recuperação", "backup_claimed"),
+        "redundancy": ("Redundância de Serviço", "redundancy_claimed"),
+        "energy": ("Recurso Contínuo de Energia", "energy_redundancy"),
+    }
+
+    if ev_verification:
+        approvals: dict[str, bool] = {}
+
+        for key, (label, bool_field) in _ev_labels.items():
+            ev = ev_verification.get(key, {})
+            quote = ev.get("quote", "")
+            if not quote:
+                continue
+
+            verified = ev.get("verified", False)
+            confidence = ev.get("confidence", 0)
+            page_num = ev.get("page_number")
+
+            badge_color = "#2E7D32" if verified else "#E65100"
+            badge_icon = "✅" if verified else "⚠️"
+            page_badge = f" · Página {page_num}" if page_num else ""
+            conf_pct = f"{confidence * 100:.0f}%"
+
+            col_check, col_card = st.columns([0.5, 9.5])
+            with col_check:
+                approved = st.checkbox(
+                    label, value=True,
+                    key=f"approve_{key}",
+                    label_visibility="collapsed",
+                )
+                approvals[key] = approved
+
+            with col_card:
+                opacity = "1" if approved else "0.45"
+                strikethrough = "" if approved else "text-decoration:line-through;"
+                st.markdown(
+                    f"<div style='background:white;border:1px solid #DDE5EF;border-radius:8px;"
+                    f"padding:.8rem 1rem;border-left:4px solid {badge_color};opacity:{opacity};'>"
+                    f"<div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:.4rem;'>"
+                    f"<strong style='font-size:.88rem;{strikethrough}'>{label}</strong>"
+                    f"<span style='font-size:.72rem;color:{badge_color};'>"
+                    f"{badge_icon} {conf_pct}{page_badge}</span>"
+                    f"</div>"
+                    f"<div style='font-size:.82rem;color:#37474F;background:#F8FAFB;"
+                    f"padding:.5rem .7rem;border-radius:5px;font-style:italic;{strikethrough}'>"
+                    f"\"{quote}\"</div>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+
+        st.session_state["_approvals"] = approvals
+
+        # Resumo de aprovação
+        total = len(approvals)
+        approved_count = sum(1 for v in approvals.values() if v)
+        st.markdown(
+            f"<p style='font-size:.8rem;color:#78909C;margin-top:.6rem;text-align:right;'>"
+            f"Aprovadas: {approved_count}/{total}</p>",
+            unsafe_allow_html=True,
+        )
+
+    elif llm_ev:
+        st.info("Evidências extraídas pelo LLM (sem verificação de página). "
+                "Todas serão incluídas no relatório.")
+        st.session_state["_approvals"] = {k: True for k in llm_ev if llm_ev[k]}
+    else:
+        st.warning(
+            "Extração via LLM não ativa — usando fallback regex. "
+            "Todas as extrações regex serão incluídas."
+        )
+        st.session_state["_approvals"] = {}
+
+    # Botão para gerar relatório
+    st.markdown("<div style='height:.6rem'></div>", unsafe_allow_html=True)
+    col_gen, col_skip = st.columns([2, 3])
+
+    with col_gen:
+        generate = st.button(
+            "Gerar Relatório",
+            type="primary",
+            use_container_width=True,
+            key="btn_generate",
+        )
+
+    with col_skip:
+        st.caption("O relatório será gerado apenas com as evidências aprovadas acima.")
+
+    # ── Phase 2: M3 + M4 (com evidências aprovadas) ───────────────────────────
+    if generate:
+        approvals = st.session_state.get("_approvals", {})
+        claimed = st.session_state["m1_claimed"]
+
+        # Filtra evidências rejeitadas
+        rejected_keys = [k for k, approved in approvals.items() if not approved]
+        if rejected_keys:
+            # Remove do llm_evidence e evidence_verification
+            filtered_llm_ev = {
+                k: v for k, v in (claimed.get("llm_evidence") or {}).items()
+                if k not in rejected_keys
+            }
+            filtered_ev_ver = {
+                k: v for k, v in (claimed.get("evidence_verification") or {}).items()
+                if k not in rejected_keys
+            }
+            claimed["llm_evidence"] = filtered_llm_ev
+            claimed["evidence_verification"] = filtered_ev_ver
+
+            # Para itens de disponibilidade rejeitados, força o bool para None
+            _key_to_bool = {
+                "hsts": "hsts_claimed",
+                "ssl_cert": "ssl_cert_claimed",
+                "backup": "backup_claimed",
+                "redundancy": "redundancy_claimed",
+                "energy": "energy_redundancy",
+            }
+            for rk in rejected_keys:
+                bool_field = _key_to_bool.get(rk)
+                if bool_field:
+                    claimed[bool_field] = None
+
+        try:
+            with st.status("Gerando relatório...", expanded=True) as status_box:
+                from modules.m3_engine import evaluate
+                from modules.m4_reporter import generate_ficha, generate_pdf
+
+                domain = st.session_state["domain_used"]
+                url = st.session_state["url_used"]
+                scan = st.session_state["m2_scan"]
+
+                st.write("M3 · Cruzando dados e aplicando regras de conformidade...")
+                result = evaluate(claimed, scan, url, domain)
+                st.write("✓ M3 concluído")
+
+                st.write("M4 · Gerando ficha de verificação...")
+                out_dir = Path(__file__).parent / "output"
+                out_dir.mkdir(exist_ok=True)
+                safe_domain = domain.replace(".", "_")
+                out_path = out_dir / f"ficha_verificacao_{safe_domain}_{date.today().isoformat()}.docx"
+                ficha_path = str(generate_ficha(result, out_path))
+                st.write("✓ Ficha .docx gerada")
+
+                pdf_out = out_dir / f"ficha_verificacao_{safe_domain}_{date.today().isoformat()}.pdf"
+                pdf_path = generate_pdf(result, pdf_out)
+                st.write("✓ PDF gerado")
+
+                status_box.update(label="Relatório gerado com sucesso", state="complete", expanded=False)
+
+            st.session_state["result"]     = result
+            st.session_state["ficha_path"] = ficha_path
+            st.session_state["pdf_path"]   = pdf_path
+            st.rerun()
+
+        except Exception as exc:
+            st.error(f"Erro durante a geração: {exc}")
+            st.exception(exc)
 
 
 # ── Results ────────────────────────────────────────────────────────────────────
