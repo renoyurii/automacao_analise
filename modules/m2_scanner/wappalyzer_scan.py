@@ -302,7 +302,11 @@ def _fetch_page(url: str) -> tuple[str | None, dict, dict, str]:
     )
     ct = resp.headers.get("Content-Type", "")
     html = resp.text if "html" in ct else None
-    return html, dict(resp.headers), dict(resp.cookies), str(resp.url)
+    try:
+        cookies = {c.name: c.value for c in resp.cookies}
+    except Exception:
+        cookies = {}
+    return html, dict(resp.headers), cookies, str(resp.url)
 
 
 _SERVER_NAME_MAP: dict[str, str] = {
@@ -459,8 +463,9 @@ def _detect_from_html(html: str, add: Any) -> list[str]:
                 if val:
                     add(category, val)
 
-    # Versões via URLs de CDN (ex: /libs/jquery/3.7.1/jquery.min.js)
+    # Versões via URLs de CDN e nomes de arquivo
     _detect_versions_from_urls(src_texts, add)
+    _detect_versions_from_filenames(src_texts, add)
 
     # Linguagem backend por extensão de links internos
     _detect_backend_language(html, add)
@@ -556,6 +561,58 @@ def _detect_versions_from_urls(src_texts: list[str], add: Any) -> None:
         if m:
             version = m.group(1) or (m.group(2) if m.lastindex and m.lastindex >= 2 else None)
             add(category, name, version)
+
+
+_FILENAME_PATTERNS: list[tuple[str, str, str]] = [
+    (r"jquery[\-.](\d+\.\d+\.\d+)", "Biblioteca JavaScript", "jQuery"),
+    (r"jquery[\-.]ui[\-.](\d+\.\d+\.\d+)", "Biblioteca JavaScript", "jQuery UI"),
+    (r"jquery[\-.]?validate[\-.]?(\d+\.\d+\.\d+)?", "Biblioteca JavaScript", "jQuery Validate"),
+    (r"jquery[\-.]?mask[\-.]?(\d+\.\d+\.\d+)?", "Biblioteca JavaScript", "jQuery Mask"),
+    (r"jquery[\-.]?maskmoney[\-.]?(\d+\.\d+\.\d+)?", "Biblioteca JavaScript", "jQuery MaskMoney"),
+    (r"bootstrap[\-.](\d+\.\d+\.\d+)", "UI Frameworks", "Bootstrap"),
+    (r"bootstrap[\-.]datetimepicker", "Biblioteca JavaScript", "Bootstrap DateTimePicker"),
+    (r"fancybox[\-.](\d+\.\d+\.\d+)", "Biblioteca JavaScript", "FancyBox"),
+    (r"slick[\-.](\d+\.\d+\.\d+)", "Biblioteca JavaScript", "Slick"),
+    (r"select2[\-.](\d+\.\d+\.\d+)?", "Biblioteca JavaScript", "Select2"),
+    (r"moment[\-.](\d+\.\d+\.\d+)?", "Biblioteca JavaScript", "Moment.js"),
+    (r"signalr[\-.]?(\d+\.\d+\.\d+)?", "Framework Web", "SignalR"),
+    (r"vue[\-.](\d+\.\d+\.\d+)", "Framework JavaScript", "Vue.js"),
+    (r"react[\-.](\d+\.\d+\.\d+)", "Framework JavaScript", "React"),
+    (r"angular[\-.](\d+\.\d+\.\d+)", "Framework JavaScript", "Angular"),
+    (r"sweetalert2?[\-.](\d+\.\d+\.\d+)", "Biblioteca JavaScript", "SweetAlert2"),
+    (r"toastr[\-.](\d+\.\d+\.\d+)", "Biblioteca JavaScript", "Toastr"),
+    (r"datatables[\-.](\d+\.\d+\.\d+)", "Biblioteca JavaScript", "DataTables"),
+    (r"AjaxFileUpload[\-.](\d+\.\d+\.\d+)", "Biblioteca JavaScript", "AjaxFileUpload"),
+    (r"trimpath[\-.]template[\-.](\d+\.\d+\.\d+)", "Biblioteca JavaScript", "TrimPath Template"),
+    (r"chart[\-.](\d+\.\d+\.\d+)", "Visualização de Dados", "Chart.js"),
+    (r"d3[\-.]v?(\d+\.\d+\.\d+)", "Visualização de Dados", "D3.js"),
+    (r"leaflet[\-.](\d+\.\d+\.\d+)", "Mapa", "Leaflet"),
+    (r"owl[\-.]?carousel[\-.](\d+\.\d+\.\d+)", "Biblioteca JavaScript", "Owl Carousel"),
+    (r"gsap[\-.](\d+\.\d+\.\d+)", "Biblioteca JavaScript", "GSAP"),
+    (r"three[\-.](\d+\.\d+\.\d+)", "Biblioteca JavaScript", "Three.js"),
+    (r"tinymce[\-.](\d+\.\d+\.\d+)", "Editor", "TinyMCE"),
+    (r"ckeditor[\-.](\d+\.\d+\.\d+)", "Editor", "CKEditor"),
+    (r"popper[\-.](\d+\.\d+\.\d+)", "Biblioteca JavaScript", "Popper.js"),
+    (r"axios[\-.](\d+\.\d+\.\d+)", "Biblioteca JavaScript", "Axios"),
+    (r"lodash[\-.](\d+\.\d+\.\d+)", "Biblioteca JavaScript", "Lodash"),
+    (r"swiper[\-.](\d+\.\d+\.\d+)", "Biblioteca JavaScript", "Swiper"),
+    (r"magnific[\-.]popup[\-.](\d+\.\d+\.\d+)", "Biblioteca JavaScript", "Magnific Popup"),
+    (r"lightbox[\-.](\d+\.\d+\.\d+)", "Biblioteca JavaScript", "Lightbox"),
+]
+
+
+def _detect_versions_from_filenames(src_texts: list[str], add: Any) -> None:
+    for src in src_texts:
+        filename = src.split("?")[0].split("#")[0].rsplit("/", 1)[-1].lower()
+        for pattern, category, name in _FILENAME_PATTERNS:
+            m = re.search(pattern, filename, re.IGNORECASE)
+            if m:
+                version = None
+                try:
+                    version = m.group(1) if m.lastindex and m.lastindex >= 1 else None
+                except IndexError:
+                    pass
+                add(category, name, version)
 
 
 def _detect_backend_language(html: str, add: Any) -> None:
