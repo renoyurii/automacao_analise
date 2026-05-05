@@ -21,6 +21,7 @@ from typing import Any
 
 from .claim_extractor import extract_claims
 from .docx_reader import read_docx
+from .evidence_verifier import verify_evidence
 from .llm_extractor import extract_claims_with_llm, is_available as llm_available
 from .pdf_reader import read_pdf
 
@@ -75,7 +76,27 @@ def parse_document(path: str) -> dict[str, Any]:
     if llm_available():
         llm_claims = extract_claims_with_llm(raw["text"])
         if llm_claims is not None:
-            return _merge_claims(regex_claims, llm_claims)
+            merged = _merge_claims(regex_claims, llm_claims)
+
+            # Verifica evidências contra o texto-fonte do documento
+            if merged.get("llm_evidence"):
+                pages_text = raw.get("pages_text", [])
+                full_text = raw.get("text", "")
+                verification = verify_evidence(
+                    merged["llm_evidence"], pages_text, full_text
+                )
+                merged["evidence_verification"] = {
+                    key: {
+                        "quote": ev.quote,
+                        "verified": ev.verified,
+                        "confidence": round(ev.confidence, 3),
+                        "page_number": ev.page_number,
+                        "matched_text": ev.matched_text,
+                    }
+                    for key, ev in verification.items()
+                }
+
+            return merged
 
     return regex_claims
 

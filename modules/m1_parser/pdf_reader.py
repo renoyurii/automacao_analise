@@ -33,6 +33,7 @@ def read_pdf(path: str | Path) -> dict[str, Any]:
         raise FileNotFoundError(f"PDF não encontrado: {path}")
 
     text_parts: list[str] = []
+    pages_text: list[str] = []     # Texto por página (index = página 0-based)
     tables: list[list[list[str | None]]] = []
     image_page_indices: list[int] = []
 
@@ -43,8 +44,10 @@ def read_pdf(path: str | Path) -> dict[str, Any]:
             page_text = page.extract_text()
             if page_text and page_text.strip():
                 text_parts.append(page_text)
+                pages_text.append(page_text)
             else:
                 image_page_indices.append(i)
+                pages_text.append("")
 
             for table in page.extract_tables():
                 if _table_has_content(table):
@@ -55,6 +58,7 @@ def read_pdf(path: str | Path) -> dict[str, Any]:
 
     return {
         "text": "\n".join(text_parts),
+        "pages_text": pages_text,
         "tables": tables,
         "metadata": metadata,
         "page_count": text_pages,

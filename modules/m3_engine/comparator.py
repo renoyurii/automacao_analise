@@ -95,6 +95,7 @@ def compare(
             "ports":                ports,
             "claimed_raw_sections": claimed_data.get("raw_sections", {}),
             "llm_evidence":         claimed_data.get("llm_evidence", {}),
+            "evidence_verification": claimed_data.get("evidence_verification", {}),
             "image_page_count":     claimed_data.get("image_page_count", 0),
         },
         "conclusao": conclusao,

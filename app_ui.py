@@ -551,7 +551,80 @@ if "result" in st.session_state:
 
     # ── Tabs ─────────────────────────────────────────────────────────────────
 
-    tab_chk, tab_tec, tab_raw = st.tabs(["Verificações", "Tecnologias detectadas", "Dados brutos"])
+    tab_ev, tab_chk, tab_tec, tab_raw = st.tabs([
+        "📋 Extração M1", "Verificações", "Tecnologias detectadas", "Dados brutos",
+    ])
+
+    with tab_ev:
+        ev_verification = rd.get("raw", {}).get("evidence_verification", {})
+        llm_ev = rd.get("raw", {}).get("llm_evidence", {})
+
+        if ev_verification:
+            st.markdown(
+                "<p style='font-size:.85rem;color:#546E7A;margin-bottom:1rem;'>"
+                "Evidências extraídas do documento pelo LLM, verificadas contra o texto-fonte original. "
+                "Cada citação foi localizada no PDF com a página de origem.</p>",
+                unsafe_allow_html=True,
+            )
+
+            _ev_labels = {
+                "hsts": ("HSTS", "hsts_claimed"),
+                "ssl_cert": ("Certificado SSL/TLS", "ssl_cert_claimed"),
+                "backup": ("Backup e Recuperação", "backup_claimed"),
+                "redundancy": ("Redundância de Serviço", "redundancy_claimed"),
+                "energy": ("Recurso Contínuo de Energia", "energy_redundancy"),
+            }
+
+            for key, (label, bool_field) in _ev_labels.items():
+                ev = ev_verification.get(key, {})
+                quote = ev.get("quote", "")
+                if not quote:
+                    continue
+
+                verified = ev.get("verified", False)
+                confidence = ev.get("confidence", 0)
+                page_num = ev.get("page_number")
+
+                # Header com badge de verificação
+                badge_color = "#2E7D32" if verified else "#E65100"
+                badge_icon = "✅" if verified else "⚠️"
+                page_badge = f"&nbsp;·&nbsp;📄 Página {page_num}" if page_num else ""
+                conf_pct = f"{confidence * 100:.0f}%"
+
+                st.markdown(
+                    f"<div style='background:white;border:1px solid #DDE5EF;border-radius:8px;"
+                    f"padding:1rem 1.2rem;margin-bottom:.7rem;border-left:4px solid {badge_color};'>"
+                    f"<div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem;'>"
+                    f"<strong style='font-size:.92rem;'>{label}</strong>"
+                    f"<span style='font-size:.75rem;color:{badge_color};'>"
+                    f"{badge_icon} Verificada ({conf_pct}){page_badge}</span>"
+                    f"</div>"
+                    f"<div style='font-size:.84rem;color:#37474F;background:#F8FAFB;"
+                    f"padding:.6rem .8rem;border-radius:5px;font-style:italic;'>"
+                    f"\"{quote}\"</div>"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+
+            # Resumo
+            total = sum(1 for v in ev_verification.values() if v.get("quote"))
+            verified_count = sum(1 for v in ev_verification.values() if v.get("verified"))
+            st.markdown(
+                f"<p style='font-size:.8rem;color:#78909C;margin-top:.8rem;text-align:right;'>"
+                f"Verificadas: {verified_count}/{total} · "
+                f"Fonte: Claude LLM (Tool Use) + verificação por difflib</p>",
+                unsafe_allow_html=True,
+            )
+        elif llm_ev:
+            st.info("Evidências extraídas pelo LLM (sem verificação de página disponível).")
+            for key, quote in llm_ev.items():
+                if quote:
+                    st.text(f"{key}: {quote}")
+        else:
+            st.warning(
+                "Extração via LLM não ativa — usando fallback regex. "
+                "Configure ANTHROPIC_API_KEY no .env para extração com citação textual verificável."
+            )
 
     with tab_chk:
         rows = _flatten_checks(checks)
