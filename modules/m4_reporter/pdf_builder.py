@@ -259,7 +259,12 @@ def _add_disponibilidade(pdf: _FichaPDF, rd: dict[str, Any]) -> None:
         pdf.add_page()
     _numbered_heading(pdf, "1. Disponibilidade")
     raw_secs = rd.get("raw", {}).get("claimed_raw_sections", {}) or {}
+    llm_ev = rd.get("raw", {}).get("llm_evidence", {}) or {}
     checks = rd.get("checks", {}).get("disponibilidade", {}) or {}
+
+    # Mapeamento: chave da seção → chave no llm_evidence
+    _ev_map = {"redundancia": "redundancy", "backup": "backup", "energia": "energy"}
+
     items = [
         ("Redundância de serviço", "redundancia"),
         ("Backup e recuperação", "backup"),
@@ -267,8 +272,15 @@ def _add_disponibilidade(pdf: _FichaPDF, rd: dict[str, Any]) -> None:
     ]
 
     for label, key in items:
-        raw = _evidence_text(raw_secs.get(key, ""))
-        estimated_h = 13 + max(1, len(raw) // 105 + 1) * 4.8
+        # Prioridade: LLM evidence > raw_sections (regex)
+        llm_key = _ev_map.get(key, key)
+        llm_text = (llm_ev.get(llm_key, "") or "").strip()
+        raw_text = _evidence_text(raw_secs.get(key, ""))
+
+        # LLM evidence é a fonte primária (citação direta do documento)
+        evidence = llm_text if llm_text else raw_text
+
+        estimated_h = 13 + max(1, len(evidence) // 105 + 1) * 4.8
         if pdf.will_page_break(estimated_h):
             pdf.add_page()
 
@@ -277,8 +289,8 @@ def _add_disponibilidade(pdf: _FichaPDF, rd: dict[str, Any]) -> None:
         pdf.cell(0, 6, f"{label} =>", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
 
         status = (checks.get(key) or {}).get("status", "")
-        if raw:
-            _paragraph(pdf, raw, size=8.2, left=7)
+        if evidence:
+            _paragraph(pdf, evidence, size=8.2, left=7)
         else:
             color = _STATUS_FG.get(status, _RED)
             pdf.set_font("Helvetica", "", 9)

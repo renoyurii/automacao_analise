@@ -168,14 +168,15 @@ def _add_classificacao(doc: Document, rd: dict) -> None:
 
 def _add_disponibilidade(doc: Document, rd: dict) -> None:
     raw_secs         = rd.get("raw", {}).get("claimed_raw_sections", {})
+    llm_ev           = rd.get("raw", {}).get("llm_evidence", {}) or {}
     image_page_count = rd.get("raw", {}).get("image_page_count", 0) or 0
     _section_label(doc, "1. Disponibilidade")
 
-    # (label, raw_section_key)
+    # (label, raw_section_key, llm_evidence_key)
     items = [
-        ("Redundância de serviço",     "redundancia"),
-        ("Backup e recuperação",       "backup"),
-        ("Recurso contínuo de energia","energia"),
+        ("Redundância de serviço",     "redundancia", "redundancy"),
+        ("Backup e recuperação",       "backup",      "backup"),
+        ("Recurso contínuo de energia","energia",     "energy"),
     ]
 
     table = doc.add_table(rows=1, cols=2)
@@ -184,12 +185,15 @@ def _add_disponibilidade(doc: Document, rd: dict) -> None:
     _hdr_cell(hdr[0], "Item")
     _hdr_cell(hdr[1], "Declarado pelo leiloeiro")
 
-    for label, sec_key in items:
+    for label, sec_key, llm_key in items:
         row = table.add_row().cells
         _body_cell(row[0], label)
 
+        # Prioridade: LLM evidence (citação direta) > raw_sections (regex)
+        llm_text = (llm_ev.get(llm_key, "") or "").strip()
         raw_text = raw_secs.get(sec_key, "").strip()
-        _evidence_cell(row[1], raw_text, image_page_count)
+        evidence = llm_text if llm_text else raw_text
+        _evidence_cell(row[1], evidence, image_page_count)
 
     set_col_width(table, 0, 5.5)
     set_col_width(table, 1, 11.0)
