@@ -1,5 +1,5 @@
 """
-Sistema de Análise Automatizada de Segurança — DESEG/SEAUD/TJRJ.
+Sistema de Análise Automatizada de Segurança.
 
 Uso:
     python main.py --url <URL> --doc <declaracao.pdf|.docx>
@@ -130,10 +130,10 @@ def _print_check_row(label: str, check: dict) -> None:
 
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Análise automatizada de segurança de sites de leiloeiros judiciais — DESEG/TJRJ."
+        description="Análise automatizada de segurança de sites."
     )
-    parser.add_argument("--url", required=True, help="URL do site do leiloeiro")
-    parser.add_argument("--doc", required=True, help="Caminho para PDF ou DOCX de declaração")
+    parser.add_argument("--url", required=True, help="URL do site a analisar")
+    parser.add_argument("--doc", required=True, help="Caminho para PDF ou DOCX da declaração")
     return parser.parse_args()
 
 
@@ -151,8 +151,8 @@ def _build_output_path(domain: str) -> Path:
 
 def _banner() -> None:
     print(f"\n{Fore.CYAN}{'─' * 60}")
-    print("  DESEG/SEAUD — Homologação de Leiloeiros Judiciais")
-    print("  Sistema de Análise Automatizada de Segurança v1.0")
+    print("  Homologação — Análise de Segurança")
+    print("  Sistema de Análise Automatizada v1.0")
     print(f"{'─' * 60}{Style.RESET_ALL}\n")
 
 

@@ -1,8 +1,6 @@
-# Automação da Análise de Homologação de Leiloeiros Judiciais
+# Automação da Análise de Segurança — Homologação de Sites
 
-Pipeline automatizado para conferência de segurança da informação de sites de leiloeiros judiciais, conforme o **PAT-GABPRES-038-01** do TJRJ. Recebe a declaração documental do leiloeiro (PDF/DOCX) e a URL pública do site, executa varredura ativa, cruza com regras de conformidade e gera a Ficha de Verificação institucional em `.docx` e `.pdf`.
-
-> Departamento de Segurança da Informação (DESEG) · SEAUD · GABPRES · TJRJ
+Pipeline automatizado para conferência de segurança da informação de sites, conforme requisitos de homologação institucional. Recebe a declaração documental (PDF/DOCX) e a URL pública do site, executa varredura ativa, cruza com regras de conformidade e gera a Ficha de Verificação em `.docx` e `.pdf`.
 
 ## Pipeline
 
@@ -24,20 +22,20 @@ Declaração (PDF/DOCX) + URL
               ▼
    ┌──────────────────────────┐
    │  M3 — Engine             │   Cruza claimed × scan
-   │  Decisão de conformidade │   EOL (informativo) · regras OWASP/PAT
+   │  Decisão de conformidade │   EOL (informativo) · regras OWASP
    └──────────────────────────┘
               │
               ▼
    ┌──────────────────────────┐
    │  M4 — Reporter           │   Gera Ficha em .docx + .pdf nativo
-   │  (Identidade TJRJ)       │
+   │  Ficha de Verificação    │
    └──────────────────────────┘
 ```
 
 ## Funcionalidades por módulo
 
 ### M1 — Parser de documentos
-Extração estruturada de declarações do leiloeiro a partir de arquivos PDF/DOCX. Arquitetura híbrida em camadas:
+Extração estruturada de declarações a partir de arquivos PDF/DOCX. Arquitetura híbrida em camadas:
 
 | Camada | Quando roda | O que faz |
 |---|---|---|
@@ -69,7 +67,7 @@ Cruza o `claimed_data` (M1) com `scan_data` (M2) e produz status por item:
 Regra de ouro: varredura ativa tem **prioridade absoluta** quando consegue verificar. Nunca marca `NÃO CONFORME` por falta de evidência.
 
 ### M4 — Reporter
-- **DOCX** (`ficha_builder.py`) — segue exatamente o modelo institucional do PAT
+- **DOCX** (`ficha_builder.py`) — segue o modelo institucional
 - **PDF** (`pdf_builder.py`) — gerado nativamente via `fpdf2`, sem dependência de LibreOffice/Word, com paginação correta via API `table()`
 
 ## Requisitos
@@ -80,7 +78,7 @@ Regra de ouro: varredura ativa tem **prioridade absoluta** quando consegue verif
 ## Instalação
 
 ```bash
-git clone https://github.com/renoyurii/automacao_analise.git
+git clone <repo-url>
 cd automacao_analise
 python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
@@ -136,7 +134,7 @@ automacao_analise/
 │   └── m4_reporter/            # Geração de relatório
 │       ├── ficha_builder.py    # DOCX
 │       └── pdf_builder.py      # PDF nativo
-├── docs/referencia/            # PAT, RAD, modelo de ficha
+├── docs/referencia/            # Documentos de referência (gitignored)
 ├── output/                     # Fichas geradas
 ├── tests/                      # Testes automatizados
 ├── app_ui.py                   # Interface Streamlit
@@ -152,8 +150,6 @@ automacao_analise/
 python3 -m pytest tests/
 ```
 
-Os testes incluem casos reais com PDFs de leiloeiros já homologados (em `docs/referencia/relatorios_leiloeiros/`, gitignored). Sem `ANTHROPIC_API_KEY` no ambiente, alguns testes do M1 podem falhar — o LLM extractor é o caminho recomendado para passar todos.
-
 ## Licença
 
-Uso interno — TJRJ / DESEG / SEAUD / GABPRES.
+Uso interno.

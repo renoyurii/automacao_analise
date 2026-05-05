@@ -33,6 +33,13 @@ _HSTS_MIN_MAX_AGE = 31_536_000
 _CRITICAL_PORTS = {22, 3389, 5900, 1433, 3306, 5432, 6379, 27017}
 
 
+def _quote_text(item) -> str:
+    """Aceita tanto str (formato antigo) quanto dict {quote, source, page}."""
+    if isinstance(item, dict):
+        return str(item.get("quote", ""))
+    return str(item or "")
+
+
 # ── Interface pública ─────────────────────────────────────────────────────────
 
 def compare(
@@ -94,8 +101,7 @@ def compare(
             "ssl_labs":             ssl,
             "ports":                ports,
             "claimed_raw_sections": claimed_data.get("raw_sections", {}),
-            "llm_evidence":         claimed_data.get("llm_evidence", {}),
-            "evidence_verification": claimed_data.get("evidence_verification", {}),
+            "evidence":             claimed_data.get("evidence", {}),
             "image_page_count":     claimed_data.get("image_page_count", 0),
         },
         "conclusao": conclusao,
@@ -118,38 +124,60 @@ def _check_url(hdrs: dict) -> dict:
 
 def _check_disponibilidade(claimed: dict) -> dict:
     """
-    Disponibilidade (redundância, backup, energia) é avaliada pela declaração.
-    Se o item foi declarado no documento, atende ao requisito da ficha.
+    Disponibilidade (redundância, backup, energia) é avaliada pela
+    presença de evidência documental concreta no relatório.
+
+    Regras:
+      - CONFORME       — há ao menos uma citação direta do leiloeiro
+                         declarando/descrevendo o item.
+      - ATENÇÃO        — só há evidência inferida ([INFERIDO]) a partir do
+                         provedor (ex.: AWS implica energia redundante).
+                         O item está provavelmente atendido, mas exige
+                         confirmação manual antes da homologação.
+      - NÃO CONFORME   — nenhuma evidência (direta ou inferida) e o
+                         leiloeiro não negou; OU o leiloeiro NEGOU
+                         explicitamente o item.
     """
-    image_pages = claimed.get("image_page_count", 0) or 0
-    raw_secs    = claimed.get("raw_sections", {}) or {}
+    evidence = claimed.get("evidence", {}) or {}
 
-    def _nv(key: str, label: str, sec_key: str) -> dict:
-        val = claimed.get(key)
-        sec_text = (raw_secs.get(sec_key, "") or "").lstrip()
-        is_inferred = sec_text.startswith("[INFERIDO]")
+    def _classify(bool_field: str, ev_key: str, label: str) -> dict:
+        ev_list = list(evidence.get(ev_key, []) or [])
+        bool_val = claimed.get(bool_field)
 
-        if val is True and is_inferred:
+        # Negação explícita pelo leiloeiro tem prioridade absoluta.
+        if bool_val is False:
             return _result(
-                "CONFORME", val, True,
-                f"{label}: Inferido a partir do contexto. "
-                "Há evidência documental suficiente para registrar o item como declarado."
+                "NÃO CONFORME", False, None,
+                f"{label}: o leiloeiro NEGOU explicitamente este item no documento.",
+                "ALTO",
             )
-        if val is True:
+
+        if not ev_list:
             return _result(
-                "CONFORME", val, True,
-                f"{label}: Declarado no documento."
+                "NÃO CONFORME", None, None,
+                f"{label}: não declarado no documento. "
+                "A norma exige declaração explícita deste item.",
+                "ALTO",
             )
+
+        all_inferred = all(_quote_text(q).startswith("[INFERIDO] ") for q in ev_list)
+        if all_inferred:
+            return _result(
+                "ATENÇÃO", True, True,
+                f"{label}: inferido a partir do provedor de hospedagem. "
+                "Confirmar com o leiloeiro antes da homologação.",
+                None,
+            )
+
         return _result(
-            "NÃO CONFORME", val, None,
-            f"{label}: não declarado no documento.",
-            "MEDIO",
+            "CONFORME", True, True,
+            f"{label}: declarado no documento ({len(ev_list)} citação(ões))."
         )
 
     return {
-        "redundancia": _nv("redundancy_claimed", "Redundância de serviço",      "redundancia"),
-        "backup":      _nv("backup_claimed",     "Backup e recuperação",        "backup"),
-        "energia":     _nv("energy_redundancy",  "Recurso contínuo de energia", "energia"),
+        "redundancia": _classify("redundancy_claimed", "redundancy", "Redundância de serviço"),
+        "backup":      _classify("backup_claimed",     "backup",     "Backup e recuperação"),
+        "energia":     _classify("energy_redundancy",  "energy",     "Recurso contínuo de energia"),
     }
 
 
@@ -294,6 +322,14 @@ def _check_aplicacoes(technologies_with_eol: list[dict]) -> dict:
 
 
 def _check_portas(ports: dict, cdn: str | None) -> dict:
+    """
+    Portas viram ALERTA INFORMATIVO (ATENÇÃO).
+
+    Política: o scan externo de portas tem alto índice de falso positivo
+    (banner aberto não significa serviço explorável; muitos provedores
+    fecham por filtro). Portas anômalas são reportadas para análise
+    manual, mas não derrubam a homologação automaticamente.
+    """
     if ports.get("error") and not ports.get("open_ports"):
         return _result("NÃO VERIFICÁVEL", None, None,
                        f"Scan de portas não concluído: {ports.get('error')}")
@@ -304,25 +340,24 @@ def _check_portas(ports: dict, cdn: str | None) -> dict:
 
     is_cloudflare = cdn == "Cloudflare"
 
-    # Filtra portas Cloudflare do total de não-padrão
     cf_ports = [p for p in non_std if p in CLOUDFLARE_PROXY_PORTS]
     truly_non_std = [p for p in non_std if p not in CLOUDFLARE_PROXY_PORTS]
     critical_exposed = [p for p in truly_non_std if p in _CRITICAL_PORTS]
 
     if critical_exposed:
         return _result(
-            "NÃO CONFORME", None, open_ports,
-            f"Portas críticas expostas publicamente: {critical_exposed}. "
-            "Serviços de administração remota acessíveis pela internet.",
-            "CRITICO"
+            "ATENÇÃO", None, open_ports,
+            f"Portas críticas detectadas no scan: {critical_exposed}. "
+            "Verificar manualmente se são serviços de administração remota "
+            "expostos. Portas abertas: " + str(open_ports) + f". Fonte: {source}.",
         )
 
     if truly_non_std:
         return _result(
-            "NÃO CONFORME", None, open_ports,
-            f"Portas não-padrão expostas: {truly_non_std}. "
-            "Verificar se são serviços necessários e se estão protegidos.",
-            "MEDIO"
+            "ATENÇÃO", None, open_ports,
+            f"Portas não-padrão detectadas no scan: {truly_non_std}. "
+            "Verificar manualmente se são serviços necessários e se estão "
+            f"protegidos. Portas abertas: {open_ports}. Fonte: {source}.",
         )
 
     if cf_ports and is_cloudflare:
@@ -415,9 +450,7 @@ def _build_conclusao(checks: dict, domain: str) -> str:
         if cripto.get(proto, {}).get("status") == "NÃO CONFORME":
             non_conformidades.append(f"não suporta {proto}")
 
-    portas = checks.get("portas", {})
-    if portas.get("status") == "NÃO CONFORME":
-        non_conformidades.append("expõe portas de rede fora do padrão")
+    # Portas viram ALERTA (ATENÇÃO) — não entram em não-conformidades.
 
     whois = checks.get("seguranca_rede", {})
     if whois.get("status") == "NÃO CONFORME":

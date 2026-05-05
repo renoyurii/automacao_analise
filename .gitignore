@@ -65,6 +65,9 @@ Thumbs.db
 output/
 *.log
 
+# Reference documents — never version (may contain sensitive data)
+docs/
+
 # Sensitive environment files
 .env
 .env.local

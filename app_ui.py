@@ -1,6 +1,5 @@
 """
 Interface web — Sistema de Análise Automatizada de Segurança.
-DESEG / SEAUD / GABPRES — TJRJ
 """
 
 from __future__ import annotations
@@ -25,7 +24,7 @@ load_dotenv(Path(__file__).parent / ".env", override=True)
 # ── Page config (must be first Streamlit call) ─────────────────────────────────
 
 st.set_page_config(
-    page_title="DESEG — Homologação de Leiloeiros",
+    page_title="Análise de Segurança — Homologação",
     page_icon="⚖️",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -81,7 +80,7 @@ st.markdown("""
 [data-testid="stSidebar"] hr    { border-color: rgba(255,255,255,.12) !important; }
 
 /* ─ Header ─ */
-.tjrj-header {
+.app-header {
     background: linear-gradient(130deg, #001257 0%, #003DA5 55%, #1565C0 100%);
     color: white;
     padding: 2rem 2.5rem 1.8rem;
@@ -89,14 +88,14 @@ st.markdown("""
     margin-bottom: 2rem;
     box-shadow: 0 6px 24px rgba(0,29,110,.18);
 }
-.tjrj-header h1 {
+.app-header h1 {
     font-size: 1.5rem;
     font-weight: 700;
     margin: 0 0 .3rem;
     letter-spacing: -.4px;
     color: white;
 }
-.tjrj-header p {
+.app-header p {
     font-size: .82rem;
     margin: 0;
     color: rgba(255,255,255,.72);
@@ -238,7 +237,53 @@ def _show_pdf_embed(pdf_bytes: bytes) -> None:
     )
 
 
+def _render_quote(ev) -> str:
+    """
+    Sanitiza HTML básico e converte [INFERIDO] em prefixo legível.
+    Aceita dict {quote, source, page} ou str (legado).
+    """
+    import html
+    if isinstance(ev, dict):
+        raw = ev.get("quote", "")
+        source = ev.get("source", "")
+        page = ev.get("page")
+    else:
+        raw = ev
+        source = ""
+        page = None
+
+    text = (raw or "").strip()
+    if text.startswith("[INFERIDO] "):
+        body = text[len("[INFERIDO] "):]
+        body_html = (
+            f"<strong style='color:#E65100'>Inferido — </strong>"
+            f"{html.escape(body)}"
+        )
+    else:
+        body_html = f"&ldquo;{html.escape(text)}&rdquo;"
+
+    footer = ""
+    if source:
+        page_part = f" · página {page}" if isinstance(page, int) and page > 0 else ""
+        footer = (
+            f"<div style='font-size:.72rem;color:#90A4AE;margin-top:.35rem;"
+            f"font-style:normal;'>Fonte: {html.escape(source)}{page_part}</div>"
+        )
+    return body_html + footer
+
+
 def _merge_claimed(claims: list[dict]) -> dict:
+    """
+    Une as extrações de N documentos.
+
+    Regras:
+      • Booleanos: True ganha de False ganha de None.
+      • Listas (tecnologias etc.): união preservando ordem.
+      • Strings: primeiro valor não-vazio.
+      • Evidências: concatena listas de TODOS os documentos. Mantém o
+        atributo `source` por citação (origem visível). Dedup só remove
+        a mesma citação vinda do mesmo arquivo.
+    """
     if len(claims) == 1:
         return claims[0]
 
@@ -251,6 +296,7 @@ def _merge_claimed(claims: list[dict]) -> dict:
         "firewall_waf", "open_ports_declared", "datacenter",
     ]
     str_fields = ["monitoring_url", "update_routine"]
+    evidence_keys = ("hsts", "ssl_cert", "backup", "redundancy", "energy")
 
     merged: dict = {}
     for field in bool_fields:
@@ -269,6 +315,31 @@ def _merge_claimed(claims: list[dict]) -> dict:
     for field in str_fields:
         merged[field] = next((c.get(field) for c in claims if c.get(field)), None)
 
+    # Evidência: une preservando atribuição (source/page por citação).
+    # Dedup só remove citações idênticas do MESMO arquivo (caso o mesmo
+    # PDF tenha sido enviado duas vezes).
+    import re
+    def _norm(t: str) -> str:
+        return re.sub(r"\s+", " ", (t or "").lower()).strip()
+
+    merged_evidence: dict[str, list[dict]] = {k: [] for k in evidence_keys}
+    for c in claims:
+        ev = c.get("evidence", {}) or {}
+        for k in evidence_keys:
+            for entry in (ev.get(k) or []):
+                if isinstance(entry, str):
+                    entry = {"quote": entry, "source": "", "page": None}
+                key = (_norm(entry.get("quote", "")), entry.get("source", ""))
+                if not key[0]:
+                    continue
+                seen_keys = {(_norm(e.get("quote", "")), e.get("source", ""))
+                             for e in merged_evidence[k]}
+                if key in seen_keys:
+                    continue
+                merged_evidence[k].append(entry)
+    merged["evidence"] = merged_evidence
+
+    # raw_sections (ainda usado por HSTS/TLS/etc.) — concatenação simples.
     all_keys: set[str] = set()
     for c in claims:
         all_keys.update((c.get("raw_sections") or {}).keys())
@@ -285,9 +356,17 @@ def _merge_claimed(claims: list[dict]) -> dict:
     return merged
 
 
-def _parse_all_documents(paths: list[str]) -> dict:
+def _parse_all_documents(paths_with_names: list[tuple[str, str]]) -> dict:
+    """
+    paths_with_names: lista de (caminho_temp, nome_original_do_arquivo).
+    O nome original é registrado em cada citação (source) — se você usar
+    apenas o caminho temporário, perderia a relação com o upload.
+    """
     from modules.m1_parser import parse_document
-    return _merge_claimed([parse_document(p) for p in paths])
+    return _merge_claimed([
+        parse_document(path, source_name=name)
+        for path, name in paths_with_names
+    ])
 
 
 # ── Sidebar ────────────────────────────────────────────────────────────────────
@@ -296,8 +375,8 @@ with st.sidebar:
     st.markdown("""
     <div class="sb-logo">
         <div class="sb-logo-icon">⚖️</div>
-        <div class="sb-logo-name">DESEG</div>
-        <div class="sb-logo-sub">TJRJ · GABPRES</div>
+        <div class="sb-logo-name">Segurança</div>
+        <div class="sb-logo-sub">Análise Automatizada</div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -333,7 +412,7 @@ with st.sidebar:
     st.markdown("---")
     st.markdown(
         '<div style="font-size:.72rem;color:rgba(255,255,255,.4);text-align:center;padding-top:.4rem;">'
-        "SEAUD · GABPRES · TJRJ<br>v2.0 · 2026"
+        "Análise de Segurança<br>v2.0 · 2026"
         "</div>",
         unsafe_allow_html=True,
     )
@@ -342,9 +421,9 @@ with st.sidebar:
 # ── Header ─────────────────────────────────────────────────────────────────────
 
 st.markdown("""
-<div class="tjrj-header">
-    <h1>Homologação de Leiloeiros Judiciais</h1>
-    <p>Análise automatizada de conformidade de segurança · Departamento de Segurança da Informação</p>
+<div class="app-header">
+    <h1>Homologação — Análise de Segurança</h1>
+    <p>Análise automatizada de conformidade de segurança da informação</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -409,55 +488,75 @@ with col_hint:
         st.caption("A análise leva aprox. **3 minutos** — SSL Labs pode ser o gargalo.")
 
 
-# ── Phase 1: M1 + M2 (extraction & scan) ──────────────────────────────────────
+# ── Pipeline completo (M1 + M2 → M3 → M4) ─────────────────────────────────────
 
 if run and ready:
-    # Limpa estado anterior
-    for k in ("result", "ficha_path", "pdf_path", "m1_claimed", "m2_scan",
-              "url_used", "domain_used", "approval_done"):
+    for k in ("result", "ficha_path", "pdf_path", "url_used", "domain_used"):
         st.session_state.pop(k, None)
 
-    tmp_paths: list[str] = []
+    tmp_paths_with_names: list[tuple[str, str]] = []
     for uf in uploaded:
         uf.seek(0)
         data = uf.read()
         suffix = Path(uf.name).suffix.lower()
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
             tmp.write(data)
-            tmp_paths.append(tmp.name)
+            tmp_paths_with_names.append((tmp.name, uf.name))
         uf.seek(0)
 
+    tmp_paths = [p for p, _ in tmp_paths_with_names]
+
     try:
-        with st.status("Executando extração e varredura...", expanded=True) as status_box:
+        with st.status("Executando análise completa...", expanded=True) as status_box:
             from modules.m1_parser import parse_document
             from modules.m2_scanner import scan_all
+            from modules.m3_engine import evaluate
+            from modules.m4_reporter import generate_ficha, generate_pdf
 
-            n = len(tmp_paths)
+            n = len(tmp_paths_with_names)
             ai_note = " + Vision AI" if vision_active else ""
             st.write(f"M1 · Parsing de {n} documento(s){ai_note} e M2 · Varredura web — em paralelo...")
+            for _, original_name in tmp_paths_with_names:
+                st.write(f"  · {original_name}")
             st.write("Aguardando SSL Labs (Qualys) — pode levar até 3 minutos...")
 
             with ThreadPoolExecutor(max_workers=2) as ex:
-                fut_m1 = ex.submit(_parse_all_documents, tmp_paths)
+                fut_m1 = ex.submit(_parse_all_documents, tmp_paths_with_names)
                 fut_m2 = ex.submit(scan_all, url_input)
                 claimed = fut_m1.result()
                 scan    = fut_m2.result()
 
             st.write(f"✓ M1 concluído ({n} documento(s))")
             st.write("✓ M2 concluído")
-            status_box.update(
-                label="Extração concluída — aguardando aprovação",
-                state="complete", expanded=False,
-            )
 
-        # Persiste para Phase 2
-        st.session_state["m1_claimed"]  = claimed
-        st.session_state["m2_scan"]     = scan
+            domain = _domain_from_url(url_input)
+
+            st.write("M3 · Cruzando dados e aplicando regras de conformidade...")
+            result = evaluate(claimed, scan, url_input, domain)
+            st.write("✓ M3 concluído")
+
+            st.write("M4 · Gerando ficha de verificação...")
+            out_dir = Path(__file__).parent / "output"
+            out_dir.mkdir(exist_ok=True)
+            safe_domain = domain.replace(".", "_")
+            out_path = out_dir / f"ficha_verificacao_{safe_domain}_{date.today().isoformat()}.docx"
+            ficha_path = str(generate_ficha(result, out_path))
+            st.write("✓ Ficha .docx gerada")
+
+            pdf_out = out_dir / f"ficha_verificacao_{safe_domain}_{date.today().isoformat()}.pdf"
+            pdf_path = generate_pdf(result, pdf_out)
+            st.write("✓ PDF gerado")
+
+            status_box.update(label="Relatório gerado com sucesso", state="complete", expanded=False)
+
+        st.session_state["result"]      = result
+        st.session_state["ficha_path"]  = ficha_path
+        st.session_state["pdf_path"]    = pdf_path
         st.session_state["url_used"]    = url_input
-        st.session_state["domain_used"] = _domain_from_url(url_input)
+        st.session_state["domain_used"] = domain
 
     except Exception as exc:
-        st.error(f"Erro durante a extração: {exc}")
+        st.error(f"Erro durante a análise: {exc}")
         st.exception(exc)
     finally:
         for p in tmp_paths:
@@ -465,185 +564,6 @@ if run and ready:
                 os.unlink(p)
             except OSError:
                 pass
-
-
-# ── Approval Gate: mostra evidências e permite aprovar/rejeitar ────────────────
-
-if "m1_claimed" in st.session_state and "result" not in st.session_state:
-    claimed = st.session_state["m1_claimed"]
-    ev_verification = claimed.get("evidence_verification", {})
-    llm_ev = claimed.get("llm_evidence", {})
-
-    st.markdown("---")
-    st.markdown(
-        "<div style='background:#FFF8E1;border:1px solid #FFE082;border-radius:10px;"
-        "padding:1.2rem 1.5rem;margin-bottom:1rem;'>"
-        "<strong style='font-size:1rem;color:#F57F17;'>Revisão de Evidências</strong>"
-        "<p style='font-size:.85rem;color:#5D4037;margin:.4rem 0 0;'>"
-        "O sistema extraiu as seguintes evidências do documento. "
-        "Revise cada item e desmarque o que estiver incorreto antes de gerar o relatório.</p>"
-        "</div>",
-        unsafe_allow_html=True,
-    )
-
-    _ev_labels = {
-        "hsts": ("HSTS", "hsts_claimed"),
-        "ssl_cert": ("Certificado SSL/TLS", "ssl_cert_claimed"),
-        "backup": ("Backup e Recuperação", "backup_claimed"),
-        "redundancy": ("Redundância de Serviço", "redundancy_claimed"),
-        "energy": ("Recurso Contínuo de Energia", "energy_redundancy"),
-    }
-
-    if ev_verification:
-        approvals: dict[str, bool] = {}
-
-        for key, (label, bool_field) in _ev_labels.items():
-            ev = ev_verification.get(key, {})
-            quote = ev.get("quote", "")
-            if not quote:
-                continue
-
-            verified = ev.get("verified", False)
-            confidence = ev.get("confidence", 0)
-            page_num = ev.get("page_number")
-
-            badge_color = "#2E7D32" if verified else "#E65100"
-            badge_icon = "✅" if verified else "⚠️"
-            page_badge = f" · Página {page_num}" if page_num else ""
-            conf_pct = f"{confidence * 100:.0f}%"
-
-            col_check, col_card = st.columns([0.5, 9.5])
-            with col_check:
-                approved = st.checkbox(
-                    label, value=True,
-                    key=f"approve_{key}",
-                    label_visibility="collapsed",
-                )
-                approvals[key] = approved
-
-            with col_card:
-                opacity = "1" if approved else "0.45"
-                strikethrough = "" if approved else "text-decoration:line-through;"
-                st.markdown(
-                    f"<div style='background:white;border:1px solid #DDE5EF;border-radius:8px;"
-                    f"padding:.8rem 1rem;border-left:4px solid {badge_color};opacity:{opacity};'>"
-                    f"<div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:.4rem;'>"
-                    f"<strong style='font-size:.88rem;{strikethrough}'>{label}</strong>"
-                    f"<span style='font-size:.72rem;color:{badge_color};'>"
-                    f"{badge_icon} {conf_pct}{page_badge}</span>"
-                    f"</div>"
-                    f"<div style='font-size:.82rem;color:#37474F;background:#F8FAFB;"
-                    f"padding:.5rem .7rem;border-radius:5px;font-style:italic;{strikethrough}'>"
-                    f"\"{quote}\"</div>"
-                    f"</div>",
-                    unsafe_allow_html=True,
-                )
-
-        st.session_state["_approvals"] = approvals
-
-        # Resumo de aprovação
-        total = len(approvals)
-        approved_count = sum(1 for v in approvals.values() if v)
-        st.markdown(
-            f"<p style='font-size:.8rem;color:#78909C;margin-top:.6rem;text-align:right;'>"
-            f"Aprovadas: {approved_count}/{total}</p>",
-            unsafe_allow_html=True,
-        )
-
-    elif llm_ev:
-        st.info("Evidências extraídas pelo LLM (sem verificação de página). "
-                "Todas serão incluídas no relatório.")
-        st.session_state["_approvals"] = {k: True for k in llm_ev if llm_ev[k]}
-    else:
-        st.warning(
-            "Extração via LLM não ativa — usando fallback regex. "
-            "Todas as extrações regex serão incluídas."
-        )
-        st.session_state["_approvals"] = {}
-
-    # Botão para gerar relatório
-    st.markdown("<div style='height:.6rem'></div>", unsafe_allow_html=True)
-    col_gen, col_skip = st.columns([2, 3])
-
-    with col_gen:
-        generate = st.button(
-            "Gerar Relatório",
-            type="primary",
-            use_container_width=True,
-            key="btn_generate",
-        )
-
-    with col_skip:
-        st.caption("O relatório será gerado apenas com as evidências aprovadas acima.")
-
-    # ── Phase 2: M3 + M4 (com evidências aprovadas) ───────────────────────────
-    if generate:
-        approvals = st.session_state.get("_approvals", {})
-        claimed = st.session_state["m1_claimed"]
-
-        # Filtra evidências rejeitadas
-        rejected_keys = [k for k, approved in approvals.items() if not approved]
-        if rejected_keys:
-            # Remove do llm_evidence e evidence_verification
-            filtered_llm_ev = {
-                k: v for k, v in (claimed.get("llm_evidence") or {}).items()
-                if k not in rejected_keys
-            }
-            filtered_ev_ver = {
-                k: v for k, v in (claimed.get("evidence_verification") or {}).items()
-                if k not in rejected_keys
-            }
-            claimed["llm_evidence"] = filtered_llm_ev
-            claimed["evidence_verification"] = filtered_ev_ver
-
-            # Para itens de disponibilidade rejeitados, força o bool para None
-            _key_to_bool = {
-                "hsts": "hsts_claimed",
-                "ssl_cert": "ssl_cert_claimed",
-                "backup": "backup_claimed",
-                "redundancy": "redundancy_claimed",
-                "energy": "energy_redundancy",
-            }
-            for rk in rejected_keys:
-                bool_field = _key_to_bool.get(rk)
-                if bool_field:
-                    claimed[bool_field] = None
-
-        try:
-            with st.status("Gerando relatório...", expanded=True) as status_box:
-                from modules.m3_engine import evaluate
-                from modules.m4_reporter import generate_ficha, generate_pdf
-
-                domain = st.session_state["domain_used"]
-                url = st.session_state["url_used"]
-                scan = st.session_state["m2_scan"]
-
-                st.write("M3 · Cruzando dados e aplicando regras de conformidade...")
-                result = evaluate(claimed, scan, url, domain)
-                st.write("✓ M3 concluído")
-
-                st.write("M4 · Gerando ficha de verificação...")
-                out_dir = Path(__file__).parent / "output"
-                out_dir.mkdir(exist_ok=True)
-                safe_domain = domain.replace(".", "_")
-                out_path = out_dir / f"ficha_verificacao_{safe_domain}_{date.today().isoformat()}.docx"
-                ficha_path = str(generate_ficha(result, out_path))
-                st.write("✓ Ficha .docx gerada")
-
-                pdf_out = out_dir / f"ficha_verificacao_{safe_domain}_{date.today().isoformat()}.pdf"
-                pdf_path = generate_pdf(result, pdf_out)
-                st.write("✓ PDF gerado")
-
-                status_box.update(label="Relatório gerado com sucesso", state="complete", expanded=False)
-
-            st.session_state["result"]     = result
-            st.session_state["ficha_path"] = ficha_path
-            st.session_state["pdf_path"]   = pdf_path
-            st.rerun()
-
-        except Exception as exc:
-            st.error(f"Erro durante a geração: {exc}")
-            st.exception(exc)
 
 
 # ── Results ────────────────────────────────────────────────────────────────────
@@ -724,74 +644,59 @@ if "result" in st.session_state:
     ])
 
     with tab_ev:
-        ev_verification = rd.get("raw", {}).get("evidence_verification", {})
-        llm_ev = rd.get("raw", {}).get("llm_evidence", {})
+        evidence = rd.get("raw", {}).get("evidence", {}) or {}
 
-        if ev_verification:
+        _ev_labels = [
+            ("redundancy", "Redundância de Serviço"),
+            ("backup",     "Backup e Recuperação"),
+            ("energy",     "Recurso Contínuo de Energia"),
+            ("hsts",       "HSTS"),
+            ("ssl_cert",   "Certificado SSL/TLS"),
+        ]
+
+        any_evidence = any(evidence.get(k) for k, _ in _ev_labels)
+        if not any_evidence:
+            st.warning(
+                "Nenhuma evidência textual extraída do documento. "
+                "Verifique se o relatório do leiloeiro está completo."
+            )
+        else:
             st.markdown(
                 "<p style='font-size:.85rem;color:#546E7A;margin-bottom:1rem;'>"
-                "Evidências extraídas do documento pelo LLM, verificadas contra o texto-fonte original. "
-                "Cada citação foi localizada no PDF com a página de origem.</p>",
+                "Citações verbatim extraídas do documento — todas as menções relevantes "
+                "que sustentam cada item da Ficha de Verificação.</p>",
                 unsafe_allow_html=True,
             )
 
-            _ev_labels = {
-                "hsts": ("HSTS", "hsts_claimed"),
-                "ssl_cert": ("Certificado SSL/TLS", "ssl_cert_claimed"),
-                "backup": ("Backup e Recuperação", "backup_claimed"),
-                "redundancy": ("Redundância de Serviço", "redundancy_claimed"),
-                "energy": ("Recurso Contínuo de Energia", "energy_redundancy"),
-            }
+        for key, label in _ev_labels:
+            quotes = list(evidence.get(key, []) or [])
+            if not quotes:
+                continue
 
-            for key, (label, bool_field) in _ev_labels.items():
-                ev = ev_verification.get(key, {})
-                quote = ev.get("quote", "")
-                if not quote:
-                    continue
+            def _qtext(e):
+                return e.get("quote", "") if isinstance(e, dict) else str(e or "")
+            inferred = all(_qtext(q).startswith("[INFERIDO] ") for q in quotes)
+            badge_color = "#E65100" if inferred else "#2E7D32"
+            badge_icon = "⚠️" if inferred else "✅"
+            badge_text = "Inferido" if inferred else f"{len(quotes)} citação(ões)"
 
-                verified = ev.get("verified", False)
-                confidence = ev.get("confidence", 0)
-                page_num = ev.get("page_number")
+            quotes_html = "".join(
+                f"<div style='font-size:.84rem;color:#37474F;background:#F8FAFB;"
+                f"padding:.5rem .7rem;border-radius:5px;font-style:italic;"
+                f"margin-top:.4rem;'>{_render_quote(q)}</div>"
+                for q in quotes
+            )
 
-                # Header com badge de verificação
-                badge_color = "#2E7D32" if verified else "#E65100"
-                badge_icon = "✅" if verified else "⚠️"
-                page_badge = f"&nbsp;·&nbsp;📄 Página {page_num}" if page_num else ""
-                conf_pct = f"{confidence * 100:.0f}%"
-
-                st.markdown(
-                    f"<div style='background:white;border:1px solid #DDE5EF;border-radius:8px;"
-                    f"padding:1rem 1.2rem;margin-bottom:.7rem;border-left:4px solid {badge_color};'>"
-                    f"<div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem;'>"
-                    f"<strong style='font-size:.92rem;'>{label}</strong>"
-                    f"<span style='font-size:.75rem;color:{badge_color};'>"
-                    f"{badge_icon} Verificada ({conf_pct}){page_badge}</span>"
-                    f"</div>"
-                    f"<div style='font-size:.84rem;color:#37474F;background:#F8FAFB;"
-                    f"padding:.6rem .8rem;border-radius:5px;font-style:italic;'>"
-                    f"\"{quote}\"</div>"
-                    f"</div>",
-                    unsafe_allow_html=True,
-                )
-
-            # Resumo
-            total = sum(1 for v in ev_verification.values() if v.get("quote"))
-            verified_count = sum(1 for v in ev_verification.values() if v.get("verified"))
             st.markdown(
-                f"<p style='font-size:.8rem;color:#78909C;margin-top:.8rem;text-align:right;'>"
-                f"Verificadas: {verified_count}/{total} · "
-                f"Fonte: Claude LLM (Tool Use) + verificação por difflib</p>",
+                f"<div style='background:white;border:1px solid #DDE5EF;border-radius:8px;"
+                f"padding:1rem 1.2rem;margin-bottom:.7rem;border-left:4px solid {badge_color};'>"
+                f"<div style='display:flex;justify-content:space-between;align-items:center;'>"
+                f"<strong style='font-size:.92rem;'>{label}</strong>"
+                f"<span style='font-size:.75rem;color:{badge_color};'>{badge_icon} {badge_text}</span>"
+                f"</div>"
+                f"{quotes_html}"
+                f"</div>",
                 unsafe_allow_html=True,
-            )
-        elif llm_ev:
-            st.info("Evidências extraídas pelo LLM (sem verificação de página disponível).")
-            for key, quote in llm_ev.items():
-                if quote:
-                    st.text(f"{key}: {quote}")
-        else:
-            st.warning(
-                "Extração via LLM não ativa — usando fallback regex. "
-                "Configure ANTHROPIC_API_KEY no .env para extração com citação textual verificável."
             )
 
     with tab_chk:

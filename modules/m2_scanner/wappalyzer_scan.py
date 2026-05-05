@@ -7,7 +7,7 @@ Esta implementação usa:
   2. Headers HTTP — Server, X-Powered-By, Via, X-Generator, alt-svc
   3. HTML fonte — scripts carregados, meta tags, atributos de bibliotecas JS
 
-Categorias replicam as usadas na Ficha de Verificação do DESEG-TJRJ.
+Categorias replicam as usadas na Ficha de Verificação institucional.
 """
 
 from __future__ import annotations

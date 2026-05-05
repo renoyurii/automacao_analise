@@ -96,21 +96,21 @@ class _FichaPDF(FPDF):
         self.set_xy(18, 10)
         self.set_font("Helvetica", "B", 7)
         self.set_text_color(*_BLUE)
-        self.cell(10, 4, "PJERJ", align="C")
+        self.cell(10, 4, "SI", align="C")
 
         self.set_xy(31, 8.5)
         self.set_font("Helvetica", "", 8)
         self.set_text_color(100, 100, 100)
-        self.cell(90, 4, "Poder Judiciário do Rio de Janeiro", new_y=YPos.NEXT)
+        self.cell(90, 4, "Análise de Segurança da Informação", new_y=YPos.NEXT)
         self.set_x(31)
-        self.cell(90, 4, "Gabinete da Presidência (GABPRES)", new_y=YPos.NEXT)
+        self.cell(90, 4, "Homologação — Ficha de Verificação", new_y=YPos.NEXT)
         self.set_x(31)
-        self.cell(90, 4, "Departamento de Segurança da Informação (DESEG)")
+        self.cell(90, 4, "Departamento de Segurança da Informação")
 
         self.set_xy(158, 9)
         self.set_font("Helvetica", "B", 16)
         self.set_text_color(195, 195, 195)
-        self.cell(34, 8, "DESEG", align="R")
+        self.cell(34, 8, "SI", align="R")
         self.set_text_color(*_TEXT)
         self.set_y(28)
 
@@ -258,11 +258,9 @@ def _add_disponibilidade(pdf: _FichaPDF, rd: dict[str, Any]) -> None:
     if pdf.get_y() > 205:
         pdf.add_page()
     _numbered_heading(pdf, "1. Disponibilidade")
-    raw_secs = rd.get("raw", {}).get("claimed_raw_sections", {}) or {}
-    llm_ev = rd.get("raw", {}).get("llm_evidence", {}) or {}
+    evidence = rd.get("raw", {}).get("evidence", {}) or {}
     checks = rd.get("checks", {}).get("disponibilidade", {}) or {}
 
-    # Mapeamento: chave da seção → chave no llm_evidence
     _ev_map = {"redundancia": "redundancy", "backup": "backup", "energia": "energy"}
 
     items = [
@@ -272,15 +270,13 @@ def _add_disponibilidade(pdf: _FichaPDF, rd: dict[str, Any]) -> None:
     ]
 
     for label, key in items:
-        # Prioridade: LLM evidence > raw_sections (regex)
-        llm_key = _ev_map.get(key, key)
-        llm_text = (llm_ev.get(llm_key, "") or "").strip()
-        raw_text = _evidence_text(raw_secs.get(key, ""))
+        ev_key = _ev_map.get(key, key)
+        evidences = list(evidence.get(ev_key, []) or [])
+        status = (checks.get(key) or {}).get("status", "")
 
-        # LLM evidence é a fonte primária (citação direta do documento)
-        evidence = llm_text if llm_text else raw_text
-
-        estimated_h = 13 + max(1, len(evidence) // 105 + 1) * 4.8
+        # Reserva espaço estimado para o item inteiro (citação + linha de fonte)
+        block_chars = sum(len(_evidence_text(_quote(e))) for e in evidences) or 30
+        estimated_h = 13 + max(1, block_chars // 105 + 1) * 4.8 + 4 * len(evidences)
         if pdf.will_page_break(estimated_h):
             pdf.add_page()
 
@@ -288,16 +284,49 @@ def _add_disponibilidade(pdf: _FichaPDF, rd: dict[str, Any]) -> None:
         pdf.set_text_color(*_TEXT)
         pdf.cell(0, 6, f"{label} =>", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
 
-        status = (checks.get(key) or {}).get("status", "")
-        if evidence:
-            _paragraph(pdf, evidence, size=8.2, left=7)
-        else:
+        if not evidences:
             color = _STATUS_FG.get(status, _RED)
             pdf.set_font("Helvetica", "", 9)
             pdf.set_text_color(*color)
             pdf.cell(0, 5, "Não informado", new_x=XPos.LMARGIN, new_y=YPos.NEXT)
             pdf.set_text_color(*_TEXT)
+            pdf.ln(2)
+            continue
+
+        for ev in evidences:
+            quote = _evidence_text(_quote(ev))
+            if not quote:
+                continue
+            bullet = "• " if len(evidences) > 1 else ""
+            _paragraph(pdf, f"{bullet}“{quote}”", size=8.2, left=7)
+
+            source = _source(ev)
+            page = _page(ev)
+            if source:
+                page_part = f" · página {page}" if isinstance(page, int) and page > 0 else ""
+                _paragraph(
+                    pdf, f"Fonte: {source}{page_part}",
+                    size=7.5, left=10, color=_GRAY,
+                )
         pdf.ln(2)
+
+
+def _quote(ev) -> str:
+    if isinstance(ev, dict):
+        return str(ev.get("quote", ""))
+    return str(ev or "")
+
+
+def _source(ev) -> str:
+    if isinstance(ev, dict):
+        return str(ev.get("source", ""))
+    return ""
+
+
+def _page(ev):
+    if isinstance(ev, dict):
+        return ev.get("page")
+    return None
 
 
 def _add_integridade(pdf: _FichaPDF, rd: dict[str, Any]) -> None:
@@ -565,13 +594,15 @@ def _paragraph(
     size: float = 9,
     left: float = 0,
     align: str = "L",
+    color: tuple[int, int, int] | None = None,
 ) -> None:
     pdf.set_font("Helvetica", "", size)
-    pdf.set_text_color(*_TEXT)
+    pdf.set_text_color(*(color or _TEXT))
     x = pdf.l_margin + left
     pdf.set_x(x)
     pdf.multi_cell(174 - left, 4.8, _space(text), align=align,
                    new_x=XPos.LMARGIN, new_y=YPos.NEXT)
+    pdf.set_text_color(*_TEXT)
 
 
 def _cert_score(cert_valid: Any) -> int | None:
@@ -643,8 +674,7 @@ def _evidence_text(raw_text: str) -> str:
         raw_text = "Inferido - " + raw_text[len("[INFERIDO] "):]
     raw_text = raw_text.replace("Trecho do documento: ", "")
     raw_text = raw_text.replace('"', "")
-    parts = [_clean_evidence_text(p.strip()) for p in raw_text.split(" [...] ") if p.strip()]
-    return " [...] ".join(p for p in parts if p)
+    return _clean_evidence_text(raw_text)
 
 
 def _clean_evidence_text(text: str) -> str:

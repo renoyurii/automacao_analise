@@ -35,18 +35,19 @@ CLOUDFLARE_PROXY_PORTS = {
 # Portas de serviço (FTP, SSH, RDP...) devem retornar um banner real.
 BANNER_REQUIRED_PORTS = {21, 22, 23, 25, 110, 143, 3306, 3389, 5432, 5900, 6379, 27017}
 
-# ── Cabeçalho institucional fixo do relatório (conforme template DESEG) ──────
-REPORT_HEADER_LINE1 = (
-    "Considerando o Provimento CGJ n.º 25/2023, Art. 4º, III, e, que dispõe sobre "
-    "credenciamento de leiloeiros públicos e corretores de imóveis, procedimentos para "
-    "realização de leilão judicial, bem como de alienação judicial por iniciativa particular, "
-    "no âmbito do Estado do Rio de Janeiro;"
+# ── Cabeçalho institucional fixo do relatório ───────────────────────────────
+# Configurar via variáveis de ambiente ou sobrescrever em .env
+REPORT_HEADER_LINE1 = os.getenv(
+    "REPORT_HEADER_LINE1",
+    "Considerando a legislação vigente que dispõe sobre credenciamento de "
+    "leiloeiros públicos e procedimentos para realização de leilão judicial;",
 )
-REPORT_HEADER_LINE2 = (
-    "Considerando a norma ISO/IEC 27002:2022, que dispõe sobre o código de práticas para "
-    "gestão de segurança da informação."
+REPORT_HEADER_LINE2 = os.getenv(
+    "REPORT_HEADER_LINE2",
+    "Considerando a norma ISO/IEC 27002:2022, que dispõe sobre o código de "
+    "práticas para gestão de segurança da informação.",
 )
-REPORT_FOOTER = (
-    "Endereço: Tribunal de Justiça do Estado do Rio de Janeiro - Palácio da Justiça - "
-    "Fórum Central\nCep: 20020-903 - Rio de Janeiro – RJ - e-mail: deseg.atendimento@tjrj.jus.br"
+REPORT_FOOTER = os.getenv(
+    "REPORT_FOOTER",
+    "Departamento de Segurança da Informação",
 )

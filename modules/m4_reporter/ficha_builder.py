@@ -1,7 +1,7 @@
 """
-Gerador da Ficha de Verificação de Segurança da Informação — DESEG/TJRJ.
+Gerador da Ficha de Verificação de Segurança da Informação.
 
-Replica o layout oficial produzido manualmente, seção por seção.
+Replica o layout do modelo institucional, seção por seção.
 Design: limpo, minimalista, sem poluição visual. Status de conformidade
 em destaque com código de cores; dados brutos em fonte monoespaçada.
 """
@@ -167,16 +167,15 @@ def _add_classificacao(doc: Document, rd: dict) -> None:
 # ── Seção 1: Disponibilidade ──────────────────────────────────────────────────
 
 def _add_disponibilidade(doc: Document, rd: dict) -> None:
-    raw_secs         = rd.get("raw", {}).get("claimed_raw_sections", {})
-    llm_ev           = rd.get("raw", {}).get("llm_evidence", {}) or {}
-    image_page_count = rd.get("raw", {}).get("image_page_count", 0) or 0
+    evidence = rd.get("raw", {}).get("evidence", {}) or {}
+    checks   = rd.get("checks", {}).get("disponibilidade", {}) or {}
     _section_label(doc, "1. Disponibilidade")
 
-    # (label, raw_section_key, llm_evidence_key)
+    # (label, check_key, evidence_key)
     items = [
-        ("Redundância de serviço",     "redundancia", "redundancy"),
-        ("Backup e recuperação",       "backup",      "backup"),
-        ("Recurso contínuo de energia","energia",     "energy"),
+        ("Redundância de serviço",      "redundancia", "redundancy"),
+        ("Backup e recuperação",        "backup",      "backup"),
+        ("Recurso contínuo de energia", "energia",     "energy"),
     ]
 
     table = doc.add_table(rows=1, cols=2)
@@ -185,15 +184,12 @@ def _add_disponibilidade(doc: Document, rd: dict) -> None:
     _hdr_cell(hdr[0], "Item")
     _hdr_cell(hdr[1], "Declarado pelo leiloeiro")
 
-    for label, sec_key, llm_key in items:
+    for label, check_key, ev_key in items:
         row = table.add_row().cells
         _body_cell(row[0], label)
-
-        # Prioridade: LLM evidence (citação direta) > raw_sections (regex)
-        llm_text = (llm_ev.get(llm_key, "") or "").strip()
-        raw_text = raw_secs.get(sec_key, "").strip()
-        evidence = llm_text if llm_text else raw_text
-        _evidence_cell(row[1], evidence, image_page_count)
+        quotes = list(evidence.get(ev_key, []) or [])
+        status = (checks.get(check_key) or {}).get("status", "")
+        _evidence_cell(row[1], quotes, status)
 
     set_col_width(table, 0, 5.5)
     set_col_width(table, 1, 11.0)
@@ -242,75 +238,111 @@ def _clean_evidence_text(text: str) -> str:
     return cleaned
 
 
-def _evidence_cell(cell, raw_text: str, image_page_count: int) -> None:
+def _evidence_cell(cell, evidences: list[dict], status: str) -> None:
     """
-    Apresenta a evidência da declaração de forma clara:
-      - Inferência: rótulo destacado + motivo + trecho fonte entre aspas
-      - Direta:     trecho citado entre aspas, em itálico
-      - Vazio:      "Não informado" simples
+    Apresenta TODAS as citações textuais da declaração, uma por parágrafo.
+
+    Cada `evidences` é uma lista de dicts {quote, source, page}.
+    Inferências (quote começa com [INFERIDO]) ganham rótulo em laranja.
+    Citações diretas aparecem entre aspas tipográficas, em itálico, com
+    bullet "•" quando há mais de uma. Logo após cada citação, em fonte
+    menor, vem a fonte: "fonte: <arquivo> · página N".
+    Sem evidência → "Não informado" no tom do status.
     """
-    # Limpa o parágrafo padrão da célula
     cell_p = cell.paragraphs[0]
     remove_paragraph_spacing(cell_p)
     set_cell_vertical_align(cell, "top")
 
-    # Caso 1 — Inferência indireta
-    if raw_text.startswith("[INFERIDO] "):
-        body = raw_text[len("[INFERIDO] "):]
-        # body tem o formato: "<motivo>. Trecho do documento: \"<quote>\""
-        if 'Trecho do documento: "' in body:
-            reason, quote = body.split('Trecho do documento: "', 1)
-            quote = quote.rstrip('"').strip()
-        else:
-            reason, quote = body, ""
-        reason = reason.rstrip(". ").strip()
-
-        # Linha 1: rótulo "Inferido" em laranja + motivo
-        r_label = cell_p.add_run("Inferido — ")
-        r_label.font.name  = FONT_NAME
-        r_label.font.size  = FONT_SMALL
-        r_label.font.bold  = True
-        r_label.font.color.rgb = ORANGE
-        r_reason = cell_p.add_run(reason + ".")
-        r_reason.font.name = FONT_NAME
-        r_reason.font.size = FONT_SMALL
-        r_reason.font.color.rgb = DARK
-
-        if quote:
-            quote = _clean_evidence_text(quote)
-            p2 = cell.add_paragraph()
-            remove_paragraph_spacing(p2)
-            r_q_lbl = p2.add_run('Trecho do documento: ')
-            r_q_lbl.font.name = FONT_NAME
-            r_q_lbl.font.size = FONT_SMALL
-            r_q_lbl.font.color.rgb = GRAY
-            r_quote = p2.add_run('“' + quote + '”')
-            r_quote.font.name = FONT_NAME
-            r_quote.font.size = FONT_SMALL
-            r_quote.font.italic = True
-            r_quote.font.color.rgb = DARK
+    if not evidences:
+        color = RED if status == "NÃO CONFORME" else GRAY
+        r = cell_p.add_run("Não informado")
+        r.font.name = FONT_NAME
+        r.font.size = FONT_SMALL
+        r.font.color.rgb = color
         return
 
-    # Caso 2 — Declaração direta (mostra o trecho completo)
-    if raw_text:
-        _sep = ' [...] '
-        parts = [
-            _clean_evidence_text(p.strip())
-            for p in raw_text.split(_sep)
-            if p.strip()
-        ]
-        full_text = _sep.join(p for p in parts if p)
-        r = cell_p.add_run('“' + full_text + '”')
+    first = True
+    for ev in evidences:
+        if isinstance(ev, str):
+            ev = {"quote": ev, "source": "", "page": None}
+
+        raw_quote = ev.get("quote", "")
+        source = ev.get("source", "")
+        page = ev.get("page")
+
+        para = cell_p if first else cell.add_paragraph()
+        if not first:
+            remove_paragraph_spacing(para)
+        first = False
+
+        if raw_quote.startswith("[INFERIDO] "):
+            body = raw_quote[len("[INFERIDO] "):]
+            if 'Trecho do documento: "' in body:
+                reason, quote = body.split('Trecho do documento: "', 1)
+                quote = quote.rstrip('"').strip()
+            else:
+                reason, quote = body, ""
+            reason = reason.rstrip(". ").strip()
+
+            r_label = para.add_run("Inferido — ")
+            r_label.font.name  = FONT_NAME
+            r_label.font.size  = FONT_SMALL
+            r_label.font.bold  = True
+            r_label.font.color.rgb = ORANGE
+            r_reason = para.add_run(reason + ".")
+            r_reason.font.name = FONT_NAME
+            r_reason.font.size = FONT_SMALL
+            r_reason.font.color.rgb = DARK
+
+            if quote:
+                quote_p = cell.add_paragraph()
+                remove_paragraph_spacing(quote_p)
+                r_q_lbl = quote_p.add_run("Trecho do documento: ")
+                r_q_lbl.font.name = FONT_NAME
+                r_q_lbl.font.size = FONT_SMALL
+                r_q_lbl.font.color.rgb = GRAY
+                r_quote = quote_p.add_run('“' + _clean_evidence_text(quote) + '”')
+                r_quote.font.name = FONT_NAME
+                r_quote.font.size = FONT_SMALL
+                r_quote.font.italic = True
+                r_quote.font.color.rgb = DARK
+            _append_source_line(cell, source, page)
+            continue
+
+        cleaned = _clean_evidence_text(raw_quote)
+        if not cleaned:
+            continue
+
+        prefix = "• " if len(evidences) > 1 else ""
+        if prefix:
+            r_pref = para.add_run(prefix)
+            r_pref.font.name = FONT_NAME
+            r_pref.font.size = FONT_SMALL
+            r_pref.font.color.rgb = MID
+        r = para.add_run('“' + cleaned + '”')
         r.font.name = FONT_NAME
         r.font.size = FONT_SMALL
         r.font.italic = True
         r.font.color.rgb = DARK
-        return
 
-    # Caso 3 — Sem evidência
-    r = cell_p.add_run("Não informado")
+        _append_source_line(cell, source, page)
+
+
+def _append_source_line(cell, source: str, page) -> None:
+    """Linha de fonte logo abaixo da citação. Omite se não houver source."""
+    if not source:
+        return
+    p = cell.add_paragraph()
+    remove_paragraph_spacing(p)
+    label = "Fonte: "
+    parts = [source]
+    if isinstance(page, int) and page > 0:
+        parts.append(f"página {page}")
+    text = label + " · ".join(parts)
+    r = p.add_run(text)
     r.font.name = FONT_NAME
     r.font.size = FONT_SMALL
+    r.font.italic = True
     r.font.color.rgb = GRAY
 
 
@@ -548,7 +580,7 @@ def _add_seguranca_rede(doc: Document, rd: dict) -> None:
     doc.add_paragraph()
 
 
-# ── Recomendações (texto fixo do template DESEG) ──────────────────────────────
+# ── Recomendações ─────────────────────────────────────────────────────────────
 
 def _add_recomendacoes(doc: Document) -> None:
     _section_label(doc, "Recomendações")
