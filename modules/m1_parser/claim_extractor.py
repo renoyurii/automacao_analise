@@ -287,6 +287,45 @@ def extract_claims(document_data: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+# ── Helpers para respostas inline e sentenças curtas ─────────────────────────
+
+def _extract_inline_response(sentence: str) -> str | None:
+    """
+    Quando uma sentença começa com texto de template/pergunta mas contém a
+    resposta do leiloeiro após um separador (: ; — →), extrai apenas a
+    parte da resposta. Retorna None se não houver resposta identificável.
+
+    Ex.: "Informar a existência de backup: Sim, possuímos backup diário."
+         → "Sim, possuímos backup diário."
+    """
+    # Tenta separadores comuns
+    for sep in (":", " — ", " - ", "→", ";"):
+        idx = sentence.find(sep)
+        if idx < 0:
+            continue
+        after = sentence[idx + len(sep):].strip()
+        if len(after) < 15:
+            continue
+        # A parte extraída NÃO pode ser ela própria texto metodológico
+        after_low = after.lower()
+        if any(marker in after_low for marker in _METHODOLOGY_MARKERS):
+            continue
+        # A parte após o separador deve conter algum indicador de resposta
+        if _has_positive_indicator(after_low) or any(
+            re.search(p, after, re.IGNORECASE)
+            for patterns in _AVAILABILITY_TERMS.values()
+            for p in patterns
+        ):
+            return after
+    return None
+
+
+def _has_positive_indicator(text: str) -> bool:
+    """True se o texto contém indicador positivo de resposta do leiloeiro."""
+    low = text.lower()
+    return any(re.search(p, low) for p in _POSITIVE)
+
+
 # ── Disponibilidade — coleta de múltiplas evidências ─────────────────────────
 
 def _extract_availability_evidence(text: str) -> dict[str, list[str]]:
@@ -301,18 +340,29 @@ def _extract_availability_evidence(text: str) -> dict[str, list[str]]:
     for sentence in sentences:
         if _is_noise(sentence):
             continue
+
+        # Template com resposta inline: "Informar backup: Sim, possuímos..."
+        # → extrai apenas a parte DEPOIS do separador como evidência.
+        effective = sentence
         if _looks_like_template(sentence):
-            continue
+            after = _extract_inline_response(sentence)
+            if after:
+                effective = after
+            else:
+                continue
 
         # Evita capturar enunciados puros do tipo "Backup e recuperação =>"
         # sem qualquer conteúdo após o rótulo.
-        stripped = re.sub(r"\s+", " ", sentence).strip(" -=>•·")
-        if len(stripped) < 30:
+        stripped = re.sub(r"\s+", " ", effective).strip(" -=>•·")
+        if len(stripped) < 20:
+            continue
+        # Sentenças curtas (20-39 chars) só passam se contêm indicador positivo
+        if len(stripped) < 40 and not _has_positive_indicator(stripped):
             continue
 
         for key, patterns in _AVAILABILITY_TERMS.items():
-            if any(re.search(p, sentence, re.IGNORECASE) for p in patterns):
-                cleaned = _clean_quote(sentence)
+            if any(re.search(p, effective, re.IGNORECASE) for p in patterns):
+                cleaned = _clean_quote(effective)
                 if cleaned and cleaned not in out[key]:
                     out[key].append(cleaned)
 

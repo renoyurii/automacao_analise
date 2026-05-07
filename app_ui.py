@@ -61,8 +61,20 @@ st.markdown("""
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 
 /* -- Reset & Base -- */
-*, *::before, *::after { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important; }
+*, *::before, *::after { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif; }
 code, pre, .stCode, [data-testid="stCode"] * { font-family: 'JetBrains Mono', monospace !important; }
+
+/* -- Preserve Streamlit Material Symbols icons -- */
+[data-testid="stSidebarCollapseButton"] span,
+[data-testid="stSidebarCollapseButton"] span span,
+[data-testid="stSidebarCollapsedControl"] span,
+[data-testid="stSidebarCollapsedControl"] span span,
+[data-testid="stBaseButton-headerNoPadding"] span,
+[data-testid="stBaseButton-headerNoPadding"] span span,
+[data-testid="stFileUploader"] button span span,
+[data-testid="stMainMenu"] span span {
+    font-family: "Material Symbols Rounded" !important;
+}
 
 /* -- Dark background -- */
 [data-testid="stApp"],
