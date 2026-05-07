@@ -50,7 +50,7 @@ REPORT_HEADER_LINE2 = os.getenv(
 REPORT_FOOTER = os.getenv(
     "REPORT_FOOTER",
     "Departamento de Segurança da Informação",
-)
+).replace(r"\n", "\n")  # python-dotenv não converte \n em valores sem aspas
 
 # ── Cabeçalho do PDF (caixa + linhas superiores) ────────────────────────────
 REPORT_PDF_BOX_LABEL = os.getenv("REPORT_PDF_BOX_LABEL", "SI")

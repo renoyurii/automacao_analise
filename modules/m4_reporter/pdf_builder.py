@@ -122,7 +122,7 @@ class _FichaPDF(FPDF):
         self.set_y(-18)
         self.set_font("Helvetica", "", 7.5)
         self.set_text_color(*_BLACK)
-        self.multi_cell(0, 3.6, REPORT_FOOTER, align="C")
+        self.multi_cell(0, 3.6, self.normalize_text(REPORT_FOOTER), align="C")
         self.set_y(-14)
         self.set_font("Helvetica", "B", 7)
         self.set_text_color(255, 0, 0)
@@ -604,7 +604,7 @@ def _paragraph(
     pdf.set_text_color(*(color or _TEXT))
     x = pdf.l_margin + left
     pdf.set_x(x)
-    pdf.multi_cell(174 - left, 4.8, _space(text), align=align,
+    pdf.multi_cell(174 - left, 4.8, pdf.normalize_text(_space(text)), align=align,
                    new_x=XPos.LMARGIN, new_y=YPos.NEXT)
     pdf.set_text_color(*_TEXT)
 
@@ -682,23 +682,8 @@ def _evidence_text(raw_text: str) -> str:
 
 
 def _clean_evidence_text(text: str) -> str:
-    patterns = [
-        r"Evidências?\s+(?:Brame\s+)?Leilões",
-        r"Demandas?\s*",
-        r"Despacho\s*[-–]\s*TJ/[\w/]+",
-        r"Source:\s*\w+\s*\d*",
-        r"Informar\s+a\s+exist[êe]ncia\s+de:?\s*●?\s*",
-        r"●\s*redund[âa]ncia\s+de\s+servi[çc]os;?\s*",
-        r"●\s*rotina\s+de\s+backup\s+e\s+recupera[çc][ãa]o;?\s*",
-        r"●\s*recurso\s+cont[íi]nuo\s+de\s+energia;?\s*",
-        r"CÓDIGO\s+N\.\d+\s+NORMA\s+VERSÃO\s+V\.\d+[^\n]*",
-        r"PUBLICADO\s+EM:\s+\d{2}/\d{2}/\d{4}[^\n]*",
-        r"VÁLIDO\s+ATÉ:\s+\d{2}/\d{2}/\d{4}[^\n]*",
-    ]
-    cleaned = text
-    for pattern in patterns:
-        cleaned = re.sub(pattern, " ", cleaned, flags=re.IGNORECASE)
-    return _space(cleaned).strip(" ;:.,●")
+    from .ficha_builder import _clean_evidence_text as _ficha_clean
+    return _ficha_clean(text)
 
 
 def _space(text: str) -> str:
@@ -706,5 +691,6 @@ def _space(text: str) -> str:
 
 
 def _trim_line(text: str, max_len: int) -> str:
-    text = _space(text)
-    return text if len(text) <= max_len else text[: max_len - 1] + "…"
+    text = _space(text).translate(_UNICODE_MAP)
+    text = text.encode("latin-1", errors="replace").decode("latin-1")
+    return text if len(text) <= max_len else text[: max_len - 1] + "..."

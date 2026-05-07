@@ -714,12 +714,14 @@ def _detect_from_bundles(src_texts: list[str], base_url: str, add: Any) -> None:
             resp = requests.get(url, headers={"User-Agent": _UA}, timeout=8, stream=True)
             if not resp.ok:
                 continue
-            raw = b""
+            parts: list[bytes] = []
+            total = 0
             for chunk in resp.iter_content(8192):
-                raw += chunk
-                if len(raw) >= _BUNDLE_MAX_BYTES:
+                parts.append(chunk)
+                total += len(chunk)
+                if total >= _BUNDLE_MAX_BYTES:
                     break
-            text = raw.decode("utf-8", errors="ignore")
+            text = b"".join(parts).decode("utf-8", errors="ignore")
         except Exception:
             continue
 

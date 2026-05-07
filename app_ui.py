@@ -1,5 +1,5 @@
 """
-Interface web — Sistema de Análise Automatizada de Segurança.
+Interface web — SecAnalysis — Analise Automatizada de Seguranca.
 """
 
 from __future__ import annotations
@@ -8,7 +8,8 @@ import base64
 import os
 import sys
 import tempfile
-from concurrent.futures import ThreadPoolExecutor
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date
 from pathlib import Path
 from urllib.parse import urlparse
@@ -21,147 +22,320 @@ sys.path.insert(0, str(Path(__file__).parent))
 load_dotenv(Path(__file__).parent / ".env", override=True)
 
 
-# ── Page config (must be first Streamlit call) ─────────────────────────────────
+# -- Page config (must be first Streamlit call) --------------------------------
 
 st.set_page_config(
-    page_title="Análise de Segurança — Homologação",
-    page_icon="⚖️",
+    page_title="SecAnalysis - Analise de Seguranca",
+    page_icon="\U0001f6e1️",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
 
-# ── Design tokens ──────────────────────────────────────────────────────────────
+# -- Design tokens -------------------------------------------------------------
 
 _STATUS_BG = {
-    "CONFORME":        "#E8F5E9",
-    "NÃO CONFORME":    "#FFEBEE",
-    "ATENÇÃO":         "#FFF3E0",
-    "NÃO VERIFICÁVEL": "#ECEFF1",
+    "CONFORME":        "rgba(16,185,129,.10)",
+    "NAO CONFORME":    "rgba(239,68,68,.10)",
+    "ATENCAO":         "rgba(245,158,11,.10)",
+    "NAO VERIFICAVEL": "rgba(100,116,139,.08)",
 }
 _STATUS_FG = {
-    "CONFORME":        "#2E7D32",
-    "NÃO CONFORME":    "#C62828",
-    "ATENÇÃO":         "#E65100",
-    "NÃO VERIFICÁVEL": "#546E7A",
+    "CONFORME":        "#10B981",
+    "NAO CONFORME":    "#EF4444",
+    "ATENCAO":         "#F59E0B",
+    "NAO VERIFICAVEL": "#64748B",
 }
 _STATUS_ICON = {
     "CONFORME":        "✅",
-    "NÃO CONFORME":    "❌",
-    "ATENÇÃO":         "⚠️",
-    "NÃO VERIFICÁVEL": "🔵",
+    "NAO CONFORME":    "❌",
+    "ATENCAO":         "⚠️",
+    "NAO VERIFICAVEL": "\U0001f535",
 }
 
 
-# ── CSS ────────────────────────────────────────────────────────────────────────
+# -- CSS -----------------------------------------------------------------------
 
 st.markdown("""
 <style>
-/* ─ Background ─ */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+/* -- Reset & Base -- */
+*, *::before, *::after { font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important; }
+code, pre, .stCode, [data-testid="stCode"] * { font-family: 'JetBrains Mono', monospace !important; }
+
+/* -- Dark background -- */
 [data-testid="stAppViewContainer"] > .main {
-    background-color: #EEF2F8;
+    background: #0B0F1A;
 }
 .block-container {
-    padding: 1.8rem 2.2rem 3rem;
-    max-width: 1080px;
+    padding: 1.5rem 2.2rem 3rem;
+    max-width: 1120px;
+}
+[data-testid="stAppViewContainer"] h1,
+[data-testid="stAppViewContainer"] h2,
+[data-testid="stAppViewContainer"] h3,
+[data-testid="stAppViewContainer"] p,
+[data-testid="stAppViewContainer"] span,
+[data-testid="stAppViewContainer"] div,
+[data-testid="stAppViewContainer"] label {
+    color: #E2E8F0 !important;
+}
+[data-testid="stAppViewContainer"] small {
+    color: #64748B !important;
 }
 
-/* ─ Sidebar ─ */
+/* -- Sidebar -- */
 [data-testid="stSidebar"] {
-    background: linear-gradient(180deg, #001A6E 0%, #0039C2 100%);
-    border-right: none;
+    background: linear-gradient(185deg, #0F1629 0%, #111827 50%, #0B0F1A 100%);
+    border-right: 1px solid rgba(99,102,241,.08);
 }
 [data-testid="stSidebar"] p,
 [data-testid="stSidebar"] span,
 [data-testid="stSidebar"] small,
 [data-testid="stSidebar"] label,
-[data-testid="stSidebar"] div { color: rgba(225,235,255,.9) !important; }
-[data-testid="stSidebar"] strong { color: #FFFFFF !important; }
-[data-testid="stSidebar"] hr    { border-color: rgba(255,255,255,.12) !important; }
+[data-testid="stSidebar"] div { color: rgba(203,213,225,.85) !important; }
+[data-testid="stSidebar"] strong { color: #E2E8F0 !important; }
+[data-testid="stSidebar"] hr { border-color: rgba(99,102,241,.10) !important; }
 
-/* ─ Header ─ */
+/* -- Header -- */
 .app-header {
-    background: linear-gradient(130deg, #001257 0%, #003DA5 55%, #1565C0 100%);
-    color: white;
-    padding: 2rem 2.5rem 1.8rem;
-    border-radius: 12px;
+    background: linear-gradient(135deg, #0F1629 0%, #1E1B4B 40%, #312E81 100%);
+    color: #E2E8F0;
+    padding: 2.2rem 2.8rem 2rem;
+    border-radius: 14px;
     margin-bottom: 2rem;
-    box-shadow: 0 6px 24px rgba(0,29,110,.18);
+    box-shadow: 0 4px 32px rgba(99,102,241,.12), 0 0 0 1px rgba(99,102,241,.08);
+    border: 1px solid rgba(99,102,241,.12);
+    position: relative;
+    overflow: hidden;
+}
+.app-header::before {
+    content: '';
+    position: absolute;
+    top: -50%;
+    right: -20%;
+    width: 300px;
+    height: 300px;
+    background: radial-gradient(circle, rgba(99,102,241,.08) 0%, transparent 70%);
+    pointer-events: none;
 }
 .app-header h1 {
-    font-size: 1.5rem;
+    font-size: 1.4rem;
     font-weight: 700;
-    margin: 0 0 .3rem;
-    letter-spacing: -.4px;
-    color: white;
+    margin: 0 0 .35rem;
+    letter-spacing: -.3px;
+    color: #E2E8F0 !important;
 }
 .app-header p {
-    font-size: .82rem;
+    font-size: .8rem;
     margin: 0;
-    color: rgba(255,255,255,.72);
-    letter-spacing: .2px;
+    color: rgba(148,163,184,.7) !important;
+    letter-spacing: .3px;
+    font-weight: 400;
 }
 
-/* ─ Cards ─ */
+/* -- Cards -- */
 .card {
-    background: white;
-    border-radius: 10px;
-    box-shadow: 0 1px 4px rgba(0,0,0,.07), 0 2px 12px rgba(0,0,0,.04);
-    padding: 1.4rem 1.8rem;
+    background: rgba(15,22,41,.65);
+    border-radius: 12px;
+    box-shadow: 0 2px 16px rgba(0,0,0,.2);
+    padding: 1.5rem 1.8rem;
     margin-bottom: 1.1rem;
+    border: 1px solid rgba(99,102,241,.08);
+    backdrop-filter: blur(8px);
 }
-.card-conforme     { border-left: 5px solid #2E7D32; }
-.card-nao-conforme { border-left: 5px solid #C62828; }
+.card-conforme { border-left: 4px solid #10B981; }
+.card-nao-conforme { border-left: 4px solid #EF4444; }
 
-/* ─ Result ─ */
+/* -- Result -- */
 .result-status {
     font-size: 1.5rem;
     font-weight: 700;
     letter-spacing: -.4px;
 }
-.result-meta     { font-size: .78rem; color: #90A4AE; margin-bottom: .6rem; }
-.result-conclusao { font-size: .9rem; color: #455A64; margin-top: .5rem; line-height: 1.5; }
-.conforme-text    { color: #2E7D32; }
-.nao-conforme-text{ color: #C62828; }
+.result-meta { font-size: .76rem; color: #64748B !important; margin-bottom: .6rem; }
+.result-conclusao { font-size: .88rem; color: #94A3B8 !important; margin-top: .5rem; line-height: 1.55; }
+.conforme-text { color: #10B981 !important; }
+.nao-conforme-text { color: #EF4444 !important; }
 
-/* ─ Sidebar logo area ─ */
+/* -- Sidebar logo area -- */
 .sb-logo { padding: 1.6rem 0 1.2rem; text-align: center; }
-.sb-logo-icon { font-size: 2.6rem; }
-.sb-logo-name { font-size: 1.05rem; font-weight: 700; color: white !important; letter-spacing: .5px; margin-top: .4rem; }
-.sb-logo-sub  { font-size: .68rem; color: rgba(255,255,255,.55) !important; letter-spacing: 1.2px; text-transform: uppercase; margin-top: .15rem; }
-
-/* ─ Sidebar section ─ */
-.sb-section { margin-bottom: .2rem; }
-.sb-item    { font-size: .82rem; padding: .18rem 0; }
-.sb-label   { font-size: .65rem; letter-spacing: 1px; text-transform: uppercase; color: rgba(255,255,255,.45) !important; margin-bottom: .4rem; display: block; }
-
-/* ─ Inputs ─ */
-[data-testid="stTextInput"] input {
-    border-radius: 7px;
-    border-color: #CBD5E1;
+.sb-logo-icon { font-size: 2.4rem; }
+.sb-logo-name {
+    font-size: 1rem;
+    font-weight: 700;
+    color: #E2E8F0 !important;
+    letter-spacing: .3px;
+    margin-top: .4rem;
+    background: linear-gradient(135deg, #6366F1, #818CF8);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
 }
-
-/* ─ Buttons ─ */
-[data-testid="stDownloadButton"] button {
-    border-radius: 7px;
+.sb-logo-sub {
+    font-size: .62rem;
+    color: rgba(148,163,184,.5) !important;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-top: .15rem;
     font-weight: 500;
 }
 
-/* ─ Expander ─ */
-[data-testid="stExpander"] {
-    border-radius: 8px !important;
-    border-color: #DDE5EF !important;
+/* -- Sidebar section -- */
+.sb-section { margin-bottom: .2rem; }
+.sb-item { font-size: .8rem; padding: .2rem 0; color: rgba(203,213,225,.7) !important; }
+.sb-label {
+    font-size: .6rem;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: rgba(99,102,241,.6) !important;
+    margin-bottom: .5rem;
+    display: block;
+    font-weight: 600;
 }
 
-/* ─ Tabs ─ */
-[data-testid="stTabs"] [data-baseweb="tab"] {
-    font-size: .88rem;
+/* -- SSL cache badge -- */
+.ssl-cache-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(16,185,129,.08);
+    border: 1px solid rgba(16,185,129,.2);
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: .72rem;
+    color: #10B981 !important;
+    margin-top: .3rem;
 }
+
+/* -- Inputs -- */
+[data-testid="stTextInput"] input {
+    border-radius: 8px;
+    border-color: rgba(99,102,241,.15);
+    background: rgba(15,22,41,.6);
+    color: #E2E8F0;
+}
+[data-testid="stTextInput"] input:focus {
+    border-color: #6366F1;
+    box-shadow: 0 0 0 2px rgba(99,102,241,.15);
+}
+
+/* -- Buttons -- */
+[data-testid="stDownloadButton"] button,
+.stButton button {
+    border-radius: 8px;
+    font-weight: 500;
+    letter-spacing: .2px;
+}
+
+/* -- Expander -- */
+[data-testid="stExpander"] {
+    border-radius: 10px !important;
+    border-color: rgba(99,102,241,.1) !important;
+    background: rgba(15,22,41,.4) !important;
+}
+
+/* -- Tabs -- */
+[data-testid="stTabs"] [data-baseweb="tab"] {
+    font-size: .85rem;
+    color: #64748B !important;
+}
+[data-testid="stTabs"] [data-baseweb="tab"][aria-selected="true"] {
+    color: #6366F1 !important;
+}
+
+/* -- Evidence cards -- */
+.ev-card {
+    background: rgba(15,22,41,.5);
+    border: 1px solid rgba(99,102,241,.08);
+    border-radius: 10px;
+    padding: 1rem 1.2rem;
+    margin-bottom: .7rem;
+}
+.ev-quote {
+    font-size: .82rem;
+    color: #CBD5E1 !important;
+    background: rgba(99,102,241,.04);
+    padding: .5rem .7rem;
+    border-radius: 6px;
+    font-style: italic;
+    margin-top: .4rem;
+    border-left: 2px solid rgba(99,102,241,.2);
+}
+
+/* -- Status bar -- */
+[data-testid="stStatusWidget"] {
+    background: rgba(15,22,41,.8) !important;
+    border-color: rgba(99,102,241,.1) !important;
+}
+
+/* -- Scrollbar -- */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: #0B0F1A; }
+::-webkit-scrollbar-thumb { background: rgba(99,102,241,.2); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(99,102,241,.35); }
 </style>
 """, unsafe_allow_html=True)
 
 
-# ── Helpers ────────────────────────────────────────────────────────────────────
+# -- SSL Cache -----------------------------------------------------------------
+
+def _get_ssl_cache(domain: str) -> dict | None:
+    """Retorna dados SSL em cache para o dominio, ou None."""
+    cache = st.session_state.get("_ssl_cache", {})
+    entry = cache.get(domain)
+    if entry is None:
+        return None
+    return entry.get("data")
+
+
+def _set_ssl_cache(domain: str, data: dict) -> None:
+    """Armazena resultado SSL Labs em cache (session_state)."""
+    if "_ssl_cache" not in st.session_state:
+        st.session_state["_ssl_cache"] = {}
+    st.session_state["_ssl_cache"][domain] = {
+        "data": data,
+        "ts": time.time(),
+    }
+
+
+def _scan_all_with_cache(url: str, domain: str) -> dict:
+    """Executa scan completo, reutilizando SSL Labs do cache quando disponivel."""
+    from modules.m2_scanner import scan_all
+
+    cached_ssl = _get_ssl_cache(domain)
+    if cached_ssl is not None:
+        # Roda headers, wappalyzer, ports, whois em paralelo -- pula SSL Labs
+        from modules.m2_scanner.headers_scan import scan_headers
+        from modules.m2_scanner.wappalyzer_scan import scan_wappalyzer
+        from modules.m2_scanner.shodan_scan import scan_ports
+        from modules.m2_scanner.whois_lookup import scan_whois
+
+        tasks = {
+            "headers":    lambda: scan_headers(url),
+            "wappalyzer": lambda: scan_wappalyzer(url),
+            "ports":      lambda: scan_ports(domain),
+            "whois":      lambda: scan_whois(domain),
+        }
+        results: dict = {"ssl_labs": cached_ssl}
+        with ThreadPoolExecutor(max_workers=4) as ex:
+            futures = {ex.submit(fn): key for key, fn in tasks.items()}
+            for future in as_completed(futures):
+                key = futures[future]
+                try:
+                    results[key] = future.result(timeout=60)
+                except Exception as e:
+                    results[key] = {"error": str(e)}
+        return results
+
+    # Sem cache -- executa tudo incluindo SSL Labs
+    result = scan_all(url)
+    if "ssl_labs" in result and not result["ssl_labs"].get("error"):
+        _set_ssl_cache(domain, result["ssl_labs"])
+    return result
+
+
+# -- Helpers -------------------------------------------------------------------
 
 def _domain_from_url(url: str) -> str:
     parsed = urlparse(url if "://" in url else f"https://{url}")
@@ -191,7 +365,7 @@ def _eol_label(tech: dict) -> str:
     if tech.get("eol") is False:
         return "✅ Suportado"
     if tech.get("version") and tech.get("checked"):
-        return "⚠️ Não encontrado"
+        return "⚠️ Nao encontrado"
     return "—"
 
 
@@ -209,42 +383,44 @@ def _color_status_row(row: pd.Series) -> list[str]:
 def _color_eol_row(row: pd.Series) -> list[str]:
     eol = row.get("EOL", "")
     if "❌" in eol:
-        return ["", "", "", "background-color:#FFEBEE;color:#C62828"]
+        return ["", "", "", "background-color:rgba(239,68,68,.1);color:#EF4444"]
     if "✅" in eol:
-        return ["", "", "", "background-color:#E8F5E9;color:#2E7D32"]
+        return ["", "", "", "background-color:rgba(16,185,129,.1);color:#10B981"]
     return ["", "", "", ""]
 
 
 def _show_pdf_embed(pdf_bytes: bytes) -> None:
-    """Embed PDF viewer using base64 iframe."""
+    """Embed PDF viewer using base64 object/embed (bypasses Chrome CSP)."""
     mb = len(pdf_bytes) / (1024 * 1024)
 
     if mb > 6:
         st.info(
-            f"📄 PDF com {mb:.1f} MB — pré-visualização indisponível para "
-            f"arquivos acima de 6 MB. Use o botão de download."
+            f"\U0001f4c4 PDF com {mb:.1f} MB — pre-visualizacao indisponivel para "
+            f"arquivos acima de 6 MB. Use o botao de download."
         )
         return
 
     b64 = base64.b64encode(pdf_bytes).decode()
-    st.markdown(
-        f"""
-        <div style="border:1px solid #DDE5EF;border-radius:8px;overflow:hidden;">
-            <iframe
-                src="data:application/pdf;base64,{b64}#toolbar=0&navpanes=0"
-                width="100%"
-                height="700px"
-                style="border:none;display:block;"
-            ></iframe>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+    data_uri = f"data:application/pdf;base64,{b64}#toolbar=0&navpanes=0"
+    st.markdown(f"""
+    <div style="border:1px solid rgba(99,102,241,.12);border-radius:10px;overflow:hidden;">
+        <object data="{data_uri}" type="application/pdf"
+                width="100%" height="700px" style="border:none;display:block;">
+            <embed src="{data_uri}" type="application/pdf"
+                   width="100%" height="700px" style="border:none;display:block;">
+                <p style="text-align:center;padding:2rem;color:#64748B;">
+                    Pre-visualizacao indisponivel neste navegador.
+                    Use o botao de download.
+                </p>
+            </embed>
+        </object>
+    </div>
+    """, unsafe_allow_html=True)
 
 
 def _render_quote(ev) -> str:
     """
-    Sanitiza HTML básico e converte [INFERIDO] em prefixo legível.
+    Sanitiza HTML basico e converte [INFERIDO] em prefixo legivel.
     Aceita dict {quote, source, page} ou str (legado).
     """
     import html
@@ -261,7 +437,7 @@ def _render_quote(ev) -> str:
     if text.startswith("[INFERIDO] "):
         body = text[len("[INFERIDO] "):]
         body_html = (
-            f"<strong style='color:#E65100'>Inferido — </strong>"
+            f"<strong style='color:#F59E0B'>Inferido — </strong>"
             f"{html.escape(body)}"
         )
     else:
@@ -269,9 +445,9 @@ def _render_quote(ev) -> str:
 
     footer = ""
     if source:
-        page_part = f" · página {page}" if isinstance(page, int) and page > 0 else ""
+        page_part = f" · pagina {page}" if isinstance(page, int) and page > 0 else ""
         footer = (
-            f"<div style='font-size:.72rem;color:#90A4AE;margin-top:.35rem;"
+            f"<div style='font-size:.7rem;color:#64748B;margin-top:.3rem;"
             f"font-style:normal;'>Fonte: {html.escape(source)}{page_part}</div>"
         )
     return body_html + footer
@@ -279,15 +455,15 @@ def _render_quote(ev) -> str:
 
 def _merge_claimed(claims: list[dict]) -> dict:
     """
-    Une as extrações de N documentos.
+    Une as extracoes de N documentos.
 
     Regras:
-      • Booleanos: True ganha de False ganha de None.
-      • Listas (tecnologias etc.): união preservando ordem.
-      • Strings: primeiro valor não-vazio.
-      • Evidências: concatena listas de TODOS os documentos. Mantém o
-        atributo `source` por citação (origem visível). Dedup só remove
-        a mesma citação vinda do mesmo arquivo.
+      - Booleanos: True ganha de False ganha de None.
+      - Listas (tecnologias etc.): uniao preservando ordem.
+      - Strings: primeiro valor nao-vazio.
+      - Evidencias: concatena listas de TODOS os documentos. Mantem o
+        atributo `source` por citacao (origem visivel). Dedup so remove
+        a mesma citacao vinda do mesmo arquivo.
     """
     if len(claims) == 1:
         return claims[0]
@@ -320,9 +496,7 @@ def _merge_claimed(claims: list[dict]) -> dict:
     for field in str_fields:
         merged[field] = next((c.get(field) for c in claims if c.get(field)), None)
 
-    # Evidência: une preservando atribuição (source/page por citação).
-    # Dedup só remove citações idênticas do MESMO arquivo (caso o mesmo
-    # PDF tenha sido enviado duas vezes).
+    # Evidencia: une preservando atribuicao (source/page por citacao).
     import re
     def _norm(t: str) -> str:
         return re.sub(r"\s+", " ", (t or "").lower()).strip()
@@ -344,7 +518,7 @@ def _merge_claimed(claims: list[dict]) -> dict:
                 merged_evidence[k].append(entry)
     merged["evidence"] = merged_evidence
 
-    # raw_sections (ainda usado por HSTS/TLS/etc.) — concatenação simples.
+    # raw_sections -- concatenacao simples.
     all_keys: set[str] = set()
     for c in claims:
         all_keys.update((c.get("raw_sections") or {}).keys())
@@ -362,11 +536,6 @@ def _merge_claimed(claims: list[dict]) -> dict:
 
 
 def _parse_all_documents(paths_with_names: list[tuple[str, str]]) -> dict:
-    """
-    paths_with_names: lista de (caminho_temp, nome_original_do_arquivo).
-    O nome original é registrado em cada citação (source) — se você usar
-    apenas o caminho temporário, perderia a relação com o upload.
-    """
     from modules.m1_parser import parse_document
     return _merge_claimed([
         parse_document(path, source_name=name)
@@ -374,31 +543,29 @@ def _parse_all_documents(paths_with_names: list[tuple[str, str]]) -> dict:
     ])
 
 
-# ── Sidebar ────────────────────────────────────────────────────────────────────
+# -- Sidebar -------------------------------------------------------------------
 
 with st.sidebar:
     st.markdown("""
     <div class="sb-logo">
-        <div class="sb-logo-icon">⚖️</div>
-        <div class="sb-logo-name">Segurança</div>
-        <div class="sb-logo-sub">Análise Automatizada</div>
+        <div class="sb-logo-icon">\U0001f6e1️</div>
+        <div class="sb-logo-name">SecAnalysis</div>
+        <div class="sb-logo-sub">automated security</div>
     </div>
     """, unsafe_allow_html=True)
 
     st.markdown("---")
 
     vision_active = bool(os.environ.get("ANTHROPIC_API_KEY", "").strip())
-
-    # LLM Extractor compartilha a mesma key, mas pode ser desativado via M1_LLM_DISABLE
     llm_extract_active = vision_active and os.environ.get("M1_LLM_DISABLE", "") != "1"
 
     st.markdown('<span class="sb-label">Componentes</span>', unsafe_allow_html=True)
     st.markdown(f"""
     <div class="sb-section">
-        <div class="sb-item">{"🟢" if llm_extract_active else "⚪"} Extração via Claude {"ativa" if llm_extract_active else "inativa"}</div>
-        <div class="sb-item">{"🟢" if vision_active else "⚪"} Vision AI {"ativa" if vision_active else "inativa"}</div>
-        <div class="sb-item">🟢 SSL Labs (Qualys)</div>
-        <div class="sb-item">🟢 endoflife.date</div>
+        <div class="sb-item">{"\U0001f7e2" if llm_extract_active else "⚪"} Extracao via Claude {"ativa" if llm_extract_active else "inativa"}</div>
+        <div class="sb-item">{"\U0001f7e2" if vision_active else "⚪"} Vision AI {"ativa" if vision_active else "inativa"}</div>
+        <div class="sb-item">\U0001f7e2 SSL Labs (Qualys)</div>
+        <div class="sb-item">\U0001f7e2 endoflife.date</div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -409,31 +576,45 @@ with st.sidebar:
     <div class="sb-section">
         <div class="sb-item">M1 · Parsing de documentos</div>
         <div class="sb-item">M2 · Varredura do site</div>
-        <div class="sb-item">M3 · Análise de conformidade</div>
-        <div class="sb-item">M4 · Geração de relatório</div>
+        <div class="sb-item">M3 · Analise de conformidade</div>
+        <div class="sb-item">M4 · Geracao de relatorio</div>
     </div>
     """, unsafe_allow_html=True)
 
+    # SSL Cache status
+    ssl_cache = st.session_state.get("_ssl_cache", {})
+    if ssl_cache:
+        st.markdown("---")
+        st.markdown('<span class="sb-label">SSL Cache</span>', unsafe_allow_html=True)
+        for cached_domain, cached_entry in ssl_cache.items():
+            grade = cached_entry.get("data", {}).get("grade", "?")
+            st.markdown(
+                f'<div class="ssl-cache-badge">'
+                f'\U0001f512 {cached_domain} · Grade {grade}'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+
     st.markdown("---")
     st.markdown(
-        '<div style="font-size:.72rem;color:rgba(255,255,255,.4);text-align:center;padding-top:.4rem;">'
-        "Análise de Segurança<br>v2.0 · 2026"
+        '<div style="font-size:.68rem;color:rgba(148,163,184,.3);text-align:center;padding-top:.4rem;">'
+        "SecAnalysis<br>v2.0 · 2026"
         "</div>",
         unsafe_allow_html=True,
     )
 
 
-# ── Header ─────────────────────────────────────────────────────────────────────
+# -- Header --------------------------------------------------------------------
 
 st.markdown("""
 <div class="app-header">
-    <h1>Homologação — Análise de Segurança</h1>
-    <p>Análise automatizada de conformidade de segurança da informação</p>
+    <h1>\U0001f6e1️ SecAnalysis — Analise de Seguranca</h1>
+    <p>Analise automatizada de conformidade de seguranca da informacao</p>
 </div>
 """, unsafe_allow_html=True)
 
 
-# ── Form ───────────────────────────────────────────────────────────────────────
+# -- Form ----------------------------------------------------------------------
 
 col_url, col_file = st.columns([5, 4])
 
@@ -445,25 +626,25 @@ with col_url:
 
 with col_file:
     uploaded = st.file_uploader(
-        "Declarações do leiloeiro (PDF / DOCX)",
+        "Declaracoes do leiloeiro (PDF / DOCX)",
         type=["pdf", "docx"],
         accept_multiple_files=True,
         help="Um ou mais arquivos enviados pelo leiloeiro via SEI",
     )
 
 
-# ── Document preview ───────────────────────────────────────────────────────────
+# -- Document preview ----------------------------------------------------------
 
 if uploaded:
     pdf_files = [f for f in uploaded if f.name.lower().endswith(".pdf")]
 
     if pdf_files:
         label = (
-            f"Pré-visualizar — {pdf_files[0].name}"
+            f"Pre-visualizar — {pdf_files[0].name}"
             if len(pdf_files) == 1
-            else f"Pré-visualizar documentos ({len(pdf_files)} PDFs)"
+            else f"Pre-visualizar documentos ({len(pdf_files)} PDFs)"
         )
-        with st.expander(f"📄 {label}", expanded=False):
+        with st.expander(f"\U0001f4c4 {label}", expanded=False):
             if len(pdf_files) == 1:
                 sel = pdf_files[0]
             else:
@@ -478,22 +659,27 @@ if uploaded:
             sel.seek(0)
 
 
-# ── Trigger ────────────────────────────────────────────────────────────────────
+# -- Trigger -------------------------------------------------------------------
 
 ready = bool(url_input.strip() and uploaded)
 col_btn, col_hint = st.columns([1, 5])
+
+domain_preview = _domain_from_url(url_input) if url_input.strip() else ""
+has_ssl_cache = domain_preview and _get_ssl_cache(domain_preview) is not None
 
 with col_btn:
     run = st.button("Analisar", type="primary", disabled=not ready, use_container_width=True)
 
 with col_hint:
     if not ready:
-        st.caption("Preencha a URL e carregue a declaração para habilitar a análise.")
+        st.caption("Preencha a URL e carregue a declaracao para habilitar a analise.")
+    elif has_ssl_cache:
+        st.caption("\U0001f512 SSL Labs em cache — analise mais rapida.")
     else:
-        st.caption("A análise leva aprox. **3 minutos** — SSL Labs pode ser o gargalo.")
+        st.caption("A analise leva aprox. **3 minutos** — SSL Labs pode ser o gargalo.")
 
 
-# ── Pipeline completo (M1 + M2 → M3 → M4) ─────────────────────────────────────
+# -- Pipeline completo (M1 + M2 -> M3 -> M4) -----------------------------------
 
 if run and ready:
     for k in ("result", "ficha_path", "pdf_path", "url_used", "domain_used"):
@@ -512,35 +698,38 @@ if run and ready:
     tmp_paths = [p for p, _ in tmp_paths_with_names]
 
     try:
-        with st.status("Executando análise completa...", expanded=True) as status_box:
+        with st.status("Executando analise completa...", expanded=True) as status_box:
             from modules.m1_parser import parse_document
             from modules.m2_scanner import scan_all
             from modules.m3_engine import evaluate
             from modules.m4_reporter import generate_ficha, generate_pdf
 
+            domain = _domain_from_url(url_input)
             n = len(tmp_paths_with_names)
             ai_note = " + Vision AI" if vision_active else ""
             st.write(f"M1 · Parsing de {n} documento(s){ai_note} e M2 · Varredura web — em paralelo...")
             for _, original_name in tmp_paths_with_names:
                 st.write(f"  · {original_name}")
-            st.write("Aguardando SSL Labs (Qualys) — pode levar até 3 minutos...")
+
+            if has_ssl_cache:
+                st.write("\U0001f512 SSL Labs em cache — pulando analise SSL.")
+            else:
+                st.write("Aguardando SSL Labs (Qualys) — pode levar ate 3 minutos...")
 
             with ThreadPoolExecutor(max_workers=2) as ex:
                 fut_m1 = ex.submit(_parse_all_documents, tmp_paths_with_names)
-                fut_m2 = ex.submit(scan_all, url_input)
+                fut_m2 = ex.submit(_scan_all_with_cache, url_input, domain)
                 claimed = fut_m1.result()
                 scan    = fut_m2.result()
 
-            st.write(f"✓ M1 concluído ({n} documento(s))")
-            st.write("✓ M2 concluído")
-
-            domain = _domain_from_url(url_input)
+            st.write(f"✓ M1 concluido ({n} documento(s))")
+            st.write("✓ M2 concluido")
 
             st.write("M3 · Cruzando dados e aplicando regras de conformidade...")
             result = evaluate(claimed, scan, url_input, domain)
-            st.write("✓ M3 concluído")
+            st.write("✓ M3 concluido")
 
-            st.write("M4 · Gerando ficha de verificação...")
+            st.write("M4 · Gerando ficha de verificacao...")
             out_dir = Path(__file__).parent / "output"
             out_dir.mkdir(exist_ok=True)
             safe_domain = domain.replace(".", "_")
@@ -552,7 +741,7 @@ if run and ready:
             pdf_path = generate_pdf(result, pdf_out)
             st.write("✓ PDF gerado")
 
-            status_box.update(label="Relatório gerado com sucesso", state="complete", expanded=False)
+            status_box.update(label="Relatorio gerado com sucesso", state="complete", expanded=False)
 
         st.session_state["result"]      = result
         st.session_state["ficha_path"]  = ficha_path
@@ -561,7 +750,7 @@ if run and ready:
         st.session_state["domain_used"] = domain
 
     except Exception as exc:
-        st.error(f"Erro durante a análise: {exc}")
+        st.error(f"Erro durante a analise: {exc}")
         st.exception(exc)
     finally:
         for p in tmp_paths:
@@ -571,7 +760,7 @@ if run and ready:
                 pass
 
 
-# ── Results ────────────────────────────────────────────────────────────────────
+# -- Results -------------------------------------------------------------------
 
 if "result" in st.session_state:
     rd         = st.session_state["result"]
@@ -592,14 +781,14 @@ if "result" in st.session_state:
 
     st.markdown("---")
 
-    # ── Result card + download panel ──────────────────────────────────────────
+    # -- Result card + download panel ------------------------------------------
 
     col_card, col_dl = st.columns([3, 2])
 
     with col_card:
         st.markdown(f"""
         <div class="card {card_cls}">
-            <div class="result-meta">🌐 {domain} &nbsp;·&nbsp; {anal_date}</div>
+            <div class="result-meta">\U0001f310 {domain} &nbsp;·&nbsp; {anal_date}</div>
             <div class="result-status {txt_cls}">{icon} {overall}</div>
             <div class="result-conclusao">{conclusao}</div>
         </div>
@@ -631,30 +820,30 @@ if "result" in st.session_state:
                     use_container_width=True,
                 )
         else:
-            st.caption("PDF não disponível para esta análise.")
+            st.caption("PDF nao disponivel para esta analise.")
 
-    # ── Ficha preview (if PDF was generated) ─────────────────────────────────
+    # -- Ficha preview (if PDF was generated) ----------------------------------
 
     if pdf_path and Path(pdf_path).exists():
-        with st.expander("📄 Pré-visualizar ficha gerada", expanded=False):
+        with st.expander("\U0001f4c4 Pre-visualizar ficha gerada", expanded=False):
             with open(pdf_path, "rb") as fh:
                 _show_pdf_embed(fh.read())
 
     st.markdown("<div style='height:.8rem'></div>", unsafe_allow_html=True)
 
-    # ── Tabs ─────────────────────────────────────────────────────────────────
+    # -- Tabs ------------------------------------------------------------------
 
     tab_ev, tab_chk, tab_tec, tab_raw = st.tabs([
-        "📋 Extração M1", "Verificações", "Tecnologias detectadas", "Dados brutos",
+        "\U0001f4cb Extracao M1", "Verificacoes", "Tecnologias detectadas", "Dados brutos",
     ])
 
     with tab_ev:
         evidence = rd.get("raw", {}).get("evidence", {}) or {}
 
         _ev_labels = [
-            ("redundancy", "Redundância de Serviço"),
-            ("backup",     "Backup e Recuperação"),
-            ("energy",     "Recurso Contínuo de Energia"),
+            ("redundancy", "Redundancia de Servico"),
+            ("backup",     "Backup e Recuperacao"),
+            ("energy",     "Recurso Continuo de Energia"),
             ("hsts",       "HSTS"),
             ("ssl_cert",   "Certificado SSL/TLS"),
         ]
@@ -662,14 +851,14 @@ if "result" in st.session_state:
         any_evidence = any(evidence.get(k) for k, _ in _ev_labels)
         if not any_evidence:
             st.warning(
-                "Nenhuma evidência textual extraída do documento. "
-                "Verifique se o relatório do leiloeiro está completo."
+                "Nenhuma evidencia textual extraida do documento. "
+                "Verifique se o relatorio do leiloeiro esta completo."
             )
         else:
             st.markdown(
-                "<p style='font-size:.85rem;color:#546E7A;margin-bottom:1rem;'>"
-                "Citações verbatim extraídas do documento — todas as menções relevantes "
-                "que sustentam cada item da Ficha de Verificação.</p>",
+                "<p style='font-size:.83rem;color:#94A3B8;margin-bottom:1rem;'>"
+                "Citacoes verbatim extraidas do documento — todas as mencoes relevantes "
+                "que sustentam cada item da Ficha de Verificacao.</p>",
                 unsafe_allow_html=True,
             )
 
@@ -681,23 +870,20 @@ if "result" in st.session_state:
             def _qtext(e):
                 return e.get("quote", "") if isinstance(e, dict) else str(e or "")
             inferred = all(_qtext(q).startswith("[INFERIDO] ") for q in quotes)
-            badge_color = "#E65100" if inferred else "#2E7D32"
+            badge_color = "#F59E0B" if inferred else "#10B981"
             badge_icon = "⚠️" if inferred else "✅"
-            badge_text = "Inferido" if inferred else f"{len(quotes)} citação(ões)"
+            badge_text = "Inferido" if inferred else f"{len(quotes)} citacao(oes)"
 
             quotes_html = "".join(
-                f"<div style='font-size:.84rem;color:#37474F;background:#F8FAFB;"
-                f"padding:.5rem .7rem;border-radius:5px;font-style:italic;"
-                f"margin-top:.4rem;'>{_render_quote(q)}</div>"
+                f"<div class='ev-quote'>{_render_quote(q)}</div>"
                 for q in quotes
             )
 
             st.markdown(
-                f"<div style='background:white;border:1px solid #DDE5EF;border-radius:8px;"
-                f"padding:1rem 1.2rem;margin-bottom:.7rem;border-left:4px solid {badge_color};'>"
+                f"<div class='ev-card' style='border-left:3px solid {badge_color};'>"
                 f"<div style='display:flex;justify-content:space-between;align-items:center;'>"
-                f"<strong style='font-size:.92rem;'>{label}</strong>"
-                f"<span style='font-size:.75rem;color:{badge_color};'>{badge_icon} {badge_text}</span>"
+                f"<strong style='font-size:.9rem;color:#E2E8F0;'>{label}</strong>"
+                f"<span style='font-size:.72rem;color:{badge_color};'>{badge_icon} {badge_text}</span>"
                 f"</div>"
                 f"{quotes_html}"
                 f"</div>",
@@ -709,7 +895,7 @@ if "result" in st.session_state:
         if rows:
             df_chk = pd.DataFrame([
                 {
-                    "Seção":      r["label"],
+                    "Secao":      r["label"],
                     "Status":     f"{_STATUS_ICON.get(r['status'], '?')} {r['status']}",
                     "Severidade": r["severity"] or "—",
                     "Detalhe":    r["detail"],
@@ -721,14 +907,14 @@ if "result" in st.session_state:
                 use_container_width=True,
                 hide_index=True,
                 column_config={
-                    "Seção":      st.column_config.TextColumn(width="medium"),
+                    "Secao":      st.column_config.TextColumn(width="medium"),
                     "Status":     st.column_config.TextColumn(width="medium"),
                     "Severidade": st.column_config.TextColumn(width="small"),
                     "Detalhe":    st.column_config.TextColumn(width="large"),
                 },
             )
         else:
-            st.info("Nenhuma verificação disponível.")
+            st.info("Nenhuma verificacao disponivel.")
 
     with tab_tec:
         if techs:
@@ -736,7 +922,7 @@ if "result" in st.session_state:
                 {
                     "Categoria":  t.get("category", ""),
                     "Tecnologia": t.get("name", ""),
-                    "Versão":     t.get("version") or "—",
+                    "Versao":     t.get("version") or "—",
                     "EOL":        _eol_label(t),
                 }
                 for t in sorted(techs, key=lambda x: (x.get("category", ""), x.get("name", "")))
@@ -748,7 +934,7 @@ if "result" in st.session_state:
                 column_config={
                     "Categoria":  st.column_config.TextColumn(width="medium"),
                     "Tecnologia": st.column_config.TextColumn(width="medium"),
-                    "Versão":     st.column_config.TextColumn(width="small"),
+                    "Versao":     st.column_config.TextColumn(width="small"),
                     "EOL":        st.column_config.TextColumn(width="small"),
                 },
             )
@@ -757,11 +943,11 @@ if "result" in st.session_state:
 
     with tab_raw:
         raw = rd.get("raw", {})
-        t_whois, t_hdrs, t_ssl = st.tabs(["WHOIS", "Cabeçalhos HTTP", "SSL Labs"])
+        t_whois, t_hdrs, t_ssl = st.tabs(["WHOIS", "Cabecalhos HTTP", "SSL Labs"])
         with t_whois:
-            st.code(raw.get("whois_raw", "Não disponível"), language=None)
+            st.code(raw.get("whois_raw", "Nao disponivel"), language=None)
         with t_hdrs:
-            st.code(raw.get("headers_raw_block", "Não disponível"), language=None)
+            st.code(raw.get("headers_raw_block", "Nao disponivel"), language=None)
         with t_ssl:
             ssl = raw.get("ssl_labs", {})
             st.json({k: v for k, v in ssl.items() if k != "raw_endpoints"})

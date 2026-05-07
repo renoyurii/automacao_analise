@@ -15,10 +15,12 @@ from typing import Any
 import requests
 from colorama import Fore, Style
 
-_BASE = "https://api.ssllabs.com/api/v3"
+from config import SSL_LABS_API_BASE, SSL_LABS_POLL_INTERVAL_SEC, SSL_LABS_MAX_WAIT_SEC
+
+_BASE = SSL_LABS_API_BASE
 _TIMEOUT = 20          # Timeout por requisição HTTP individual
-_POLL_INTERVAL = 15    # Segundos entre cada consulta de status
-_MAX_WAIT = 300        # Segundos máximos de espera total (5 minutos)
+_POLL_INTERVAL = SSL_LABS_POLL_INTERVAL_SEC
+_MAX_WAIT = SSL_LABS_MAX_WAIT_SEC
 
 # IDs de protocolo conforme especificação SSL Labs
 _PROTOCOL_NAMES: dict[int, str] = {

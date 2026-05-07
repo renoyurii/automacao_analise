@@ -26,6 +26,28 @@ from typing import Any
 from config import CLOUDFLARE_PROXY_PORTS, EXPECTED_PORTS
 from .eol_checker import check_eol
 
+def _parse_whois_date(raw: str) -> date:
+    """Parse de datas WHOIS em vários formatos comuns."""
+    raw = raw.strip()
+    # Tenta formatos em ordem do mais comum para o menos comum
+    candidates = [
+        (raw[:8],  "%Y%m%d"),
+        (raw[:10], "%Y-%m-%d"),
+        (raw[:19], "%Y-%m-%dT%H:%M:%S"),
+        (raw[:20], "%Y-%m-%dT%H:%M:%SZ"),
+        (raw[:10], "%d/%m/%Y"),
+        (raw[:10], "%d-%m-%Y"),
+        (raw[:10], "%Y/%m/%d"),
+    ]
+    for slice_val, fmt in candidates:
+        try:
+            return datetime.strptime(slice_val, fmt).date()
+        except (ValueError, IndexError):
+            continue
+    # Fallback: tenta ISO diretamente
+    return datetime.strptime(raw[:10], "%Y-%m-%d").date()
+
+
 # Limiar HSTS mínimo recomendado (OWASP): 1 ano em segundos
 _HSTS_MIN_MAX_AGE = 31_536_000
 
@@ -387,7 +409,7 @@ def _check_whois(whois: dict) -> dict:
 
     if expires_str:
         try:
-            exp_date = datetime.strptime(expires_str[:8], "%Y%m%d").date()
+            exp_date = _parse_whois_date(expires_str)
             days_left = (exp_date - date.today()).days
             expiring_soon = days_left < 30
             expires_fmt = exp_date.strftime("%d/%m/%Y")
