@@ -65,12 +65,17 @@ st.markdown("""
 code, pre, .stCode, [data-testid="stCode"] * { font-family: 'JetBrains Mono', monospace !important; }
 
 /* -- Dark background -- */
-[data-testid="stAppViewContainer"] > .main {
-    background: #0B0F1A;
+[data-testid="stApp"],
+[data-testid="stAppViewContainer"],
+[data-testid="stMain"],
+[data-testid="stMainBlockContainer"],
+.main, .stApp {
+    background: #0B0F1A !important;
 }
-.block-container {
+.block-container, [data-testid="stMainBlockContainer"] {
     padding: 1.5rem 2.2rem 3rem;
     max-width: 1120px;
+    background: #0B0F1A !important;
 }
 [data-testid="stAppViewContainer"] h1,
 [data-testid="stAppViewContainer"] h2,
@@ -78,11 +83,47 @@ code, pre, .stCode, [data-testid="stCode"] * { font-family: 'JetBrains Mono', mo
 [data-testid="stAppViewContainer"] p,
 [data-testid="stAppViewContainer"] span,
 [data-testid="stAppViewContainer"] div,
-[data-testid="stAppViewContainer"] label {
+[data-testid="stAppViewContainer"] label,
+[data-testid="stMain"] h1,
+[data-testid="stMain"] h2,
+[data-testid="stMain"] h3,
+[data-testid="stMain"] p,
+[data-testid="stMain"] span,
+[data-testid="stMain"] div,
+[data-testid="stMain"] label {
     color: #E2E8F0 !important;
 }
-[data-testid="stAppViewContainer"] small {
+[data-testid="stAppViewContainer"] small,
+[data-testid="stMain"] small {
     color: #64748B !important;
+}
+/* -- File uploader dark -- */
+[data-testid="stFileUploader"],
+[data-testid="stFileUploader"] > div,
+[data-testid="stFileUploader"] section {
+    background: rgba(15,22,41,.6) !important;
+    border-color: rgba(99,102,241,.15) !important;
+    border-radius: 8px;
+}
+[data-testid="stFileUploader"] small,
+[data-testid="stFileUploader"] span {
+    color: #94A3B8 !important;
+}
+/* -- Bottom bar / toolbar -- */
+[data-testid="stBottom"],
+[data-testid="stToolbar"],
+[data-testid="stHeader"] {
+    background: #0B0F1A !important;
+}
+/* -- Status widget -- */
+[data-testid="stStatusWidget"] {
+    background: rgba(15,22,41,.95) !important;
+    border-color: rgba(99,102,241,.12) !important;
+}
+/* -- Dataframes -- */
+[data-testid="stDataFrame"] {
+    background: rgba(15,22,41,.5) !important;
+    border-radius: 8px;
 }
 
 /* -- Sidebar -- */
